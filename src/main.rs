@@ -184,6 +184,7 @@ impl SimpleComponent for App {
             set_size_request: (360, 294),
 
             #[wrap(Some)]
+            #[name = "toolbar"]
             set_content = &adw::ToolbarView {
                 // The wave field runs edge to edge, under a headerbar that paints nothing.
                 set_extend_content_to_top_edge: true,
@@ -210,11 +211,14 @@ impl SimpleComponent for App {
                         set_vexpand: true,
                     },
 
+                    #[name = "content"]
                     add_overlay = &gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
                         set_margin_start: 12,
                         set_margin_end: 12,
-                        set_margin_bottom: 12,
+                        set_margin_bottom: 24,
+                        // margin-top is bound to the headerbar's height in init: the waves run
+                        // under the bar, the controls must not run into the status pill.
                         #[watch]
                         set_visible: model.error.is_none(),
 
@@ -382,6 +386,14 @@ impl SimpleComponent for App {
             });
         }
 
+        // The content floats over a headerbar that paints nothing, so it has to start below it.
+        // AdwToolbarView publishes the bar's real height for exactly this.
+        widgets
+            .toolbar
+            .bind_property("top-bar-height", &widgets.content, "margin-top")
+            .sync_create()
+            .build();
+
         // The note typography follows the blob's real size, so it fits on a phone and grows on
         // a desktop without a table of breakpoints.
         {
@@ -396,21 +408,32 @@ impl SimpleComponent for App {
         // animation state and asks the four areas to redraw.
         {
             let a = anim.clone();
-            let areas = [
-                widgets.waves.clone(),
-                widgets.blob.clone(),
-                widgets.arrows_up.clone(),
-                widgets.arrows_down.clone(),
-            ];
+            let waves = widgets.waves.clone();
+            let blob = widgets.blob.clone();
+            let up = widgets.arrows_up.clone();
+            let down = widgets.arrows_down.clone();
             let last = std::cell::Cell::new(0i64);
+            let arrows_was = std::cell::Cell::new((0f32, 0f32));
             root.add_tick_callback(move |_, clock| {
                 let now = clock.frame_time();
                 let prev = last.replace(now);
                 let dt = if prev == 0 { 0.0 } else { (now - prev) as f64 / 1_000_000.0 };
                 // Clamp so a stalled frame (resize, wake from sleep) never jumps the motion.
-                a.borrow_mut().step(dt.min(0.05));
-                for area in &areas {
-                    area.queue_draw();
+                let arrows = {
+                    let mut anim = a.borrow_mut();
+                    anim.step(dt.min(0.05));
+                    (anim.up, anim.down)
+                };
+                waves.queue_draw();
+                blob.queue_draw();
+                // An empty chevron row has nothing to repaint. Redraw while it shows, plus the
+                // one frame after it empties, so the last ghost is cleared.
+                let was = arrows_was.replace(arrows);
+                if arrows.0 > 0.004 || was.0 > 0.004 {
+                    up.queue_draw();
+                }
+                if arrows.1 > 0.004 || was.1 > 0.004 {
+                    down.queue_draw();
                 }
                 relm4::gtk::glib::ControlFlow::Continue
             });

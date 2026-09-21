@@ -3,7 +3,9 @@
 
 use std::f64::consts::PI;
 
-use relm4::adw;
+#[allow(deprecated)]
+use relm4::gtk::prelude::{StyleContextExt, WidgetExt};
+use relm4::{adw, gtk};
 use relm4::gtk::cairo::{Context, FillRule, LineCap, LineJoin};
 
 // ---------------------------------------------------------------------------------------------
@@ -96,17 +98,83 @@ pub struct Palette {
     pub muted: Rgb,
 }
 
+/// The Adwaita palette's hue families, in wheel order. libadwaita defines `blue_1` … `blue_5`
+/// and friends as named colours, so these are the system's own shades, not ours.
+const WHEEL: [&str; 6] = ["blue", "purple", "red", "orange", "yellow", "green"];
+
+/// Where the user's accent sits on that wheel. Teal, pink and slate have no palette family of
+/// their own, so they borrow their nearest neighbour's.
+fn wheel_index(accent: adw::AccentColor) -> usize {
+    match accent {
+        adw::AccentColor::Purple | adw::AccentColor::Pink => 1,
+        adw::AccentColor::Red => 2,
+        adw::AccentColor::Orange => 3,
+        adw::AccentColor::Yellow => 4,
+        adw::AccentColor::Green | adw::AccentColor::Teal => 5,
+        _ => 0, // Blue, Slate, and anything a future libadwaita adds
+    }
+}
+
+/// Resolves a theme colour by name through a throwaway widget. `lookup_color` is deprecated but
+/// it is still the one call that answers "what is `@blue_2` on this display, right now" — and
+/// every caller below has a fallback for when it answers nothing.
+#[allow(deprecated)]
+fn theme_color(probe: &gtk::Label, name: &str) -> Option<Rgb> {
+    probe
+        .style_context()
+        .lookup_color(name)
+        .map(|c| Rgb(c.red() as f64, c.green() as f64, c.blue() as f64))
+}
+
 impl Palette {
-    /// Reads the user's current libadwaita accent and light/dark preference.
+    /// Builds the look out of the colours the system hands us: the accent, the window and
+    /// semantic colours, and three hue families from the Adwaita palette for the wave bands.
+    /// Anything the running theme does not define falls back to deriving it from the accent.
     pub fn current() -> Self {
         let sm = adw::StyleManager::default();
+        let dark = sm.is_dark();
+        let probe = gtk::Label::new(None);
+
         let a = sm.accent_color().to_rgba();
-        Palette::from_accent(
-            Rgb(a.red() as f64, a.green() as f64, a.blue() as f64),
-            sm.is_dark(),
-        )
+        let accent = theme_color(&probe, "accent_bg_color")
+            .unwrap_or(Rgb(a.red() as f64, a.green() as f64, a.blue() as f64));
+
+        let mut palette = Palette::from_accent(accent, dark);
+        if let Some(c) = theme_color(&probe, "window_bg_color") {
+            palette.bg = c.mix(accent, if dark { 0.05 } else { 0.045 });
+            palette.muted = palette.bg.mix(palette.fg, 0.18);
+        }
+        if let Some(c) = theme_color(&probe, "window_fg_color") {
+            palette.fg = c;
+            palette.muted = palette.bg.mix(palette.fg, 0.18);
+        }
+        if let Some(c) = theme_color(&probe, "error_bg_color") {
+            palette.error = c;
+        }
+        if let Some(c) = theme_color(&probe, "warning_bg_color") {
+            palette.warning = c;
+        }
+
+        // Three neighbouring families starting at the accent's own — blue, purple, red for the
+        // default accent, which is exactly the lavender / periwinkle / pink of the original.
+        // The palette's shades are vivid on their own, so each is settled toward the window
+        // ground until it reads as a background band rather than a button.
+        let start = wheel_index(sm.accent_color());
+        let shade = if dark { 5 } else { 1 };
+        let toward_ground = if dark { 0.55 } else { 0.32 };
+        let from_palette: Option<Vec<Rgb>> = (0..3)
+            .map(|i| {
+                theme_color(&probe, &format!("{}_{}", WHEEL[(start + i) % WHEEL.len()], shade))
+                    .map(|c| c.mix(palette.bg, toward_ground))
+            })
+            .collect();
+        if let Some(bands) = from_palette {
+            palette.bands = [bands[0], bands[1], bands[2]];
+        }
+        palette
     }
 
+    /// The fallback recipe: everything derived from one accent colour by hue and lightness.
     pub fn from_accent(accent: Rgb, dark: bool) -> Self {
         // libadwaita's own window/semantic colours, so the painted layer and the CSS layer agree.
         let fg = if dark { Rgb::hex(0xffffff) } else { Rgb::hex(0x000000) };
@@ -326,7 +394,9 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
     let thickness = spacing * 0.62;
     let kx = 1.5 * 2.0 * PI;
     let ripple = a.time * (2.0 * PI / 3.2); // one full traverse every 3.2 s
-    let step = (w / 320.0).max(1.0);
+    // One vertex every ~3 device pixels: fine enough that no facet shows on a crest, and the
+    // cost scales with the window instead of with a fixed vertex budget.
+    let step = 3.0;
     let count = (h / spacing) as i32;
 
     cr.set_line_width(thickness);
@@ -384,12 +454,13 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
 fn cookie_path(cr: &Context, cx: f64, cy: f64, r: f64, rotation: f64, vib: f64, vib_phase: f64) {
     const LOBES: f64 = 12.0;
     const SCALLOP: f64 = 0.038;
-    const SAMPLES: usize = 720;
+    // Same rule as the wave field: roughly one vertex per two pixels of rim, bounded.
+    let samples = ((r * PI) as usize).clamp(240, 900);
     let osc = (2.0 * PI * vib_phase).sin();
     let scallop = SCALLOP * (1.0 + 3.2 * vib * osc);
     let scale = r * (1.0 + 0.5 * vib * osc);
-    for i in 0..=SAMPLES {
-        let t = i as f64 / SAMPLES as f64 * 2.0 * PI;
+    for i in 0..=samples {
+        let t = i as f64 / samples as f64 * 2.0 * PI;
         let rr = scale * (1.0 - scallop + scallop * (LOBES * (t + rotation)).cos());
         let (x, y) = (cx + rr * t.cos(), cy + rr * t.sin());
         if i == 0 {
