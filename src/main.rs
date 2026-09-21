@@ -168,6 +168,110 @@ impl App {
 
 // ---------------------------------------------------------------------------------------------
 
+/// Wires the drawing functions, the frame clock and the live theme watch onto the widgets.
+/// Shared by the normal start-up path and the screenshot one.
+fn setup_painting(
+    widgets: &AppWidgets,
+    anim: &Rc<RefCell<Anim>>,
+    root: &adw::ApplicationWindow,
+    sender: &ComponentSender<App>,
+) {
+        // --- painting -------------------------------------------------------------------
+        {
+            let a = anim.clone();
+            widgets
+                .waves
+                .set_draw_func(move |_, cr, w, h| paint::draw_waves(cr, w as f64, h as f64, &a.borrow()));
+        }
+        {
+            let a = anim.clone();
+            widgets
+                .blob
+                .set_draw_func(move |_, cr, w, h| paint::draw_blob(cr, w as f64, h as f64, &a.borrow()));
+        }
+        {
+            let a = anim.clone();
+            widgets.arrows_up.set_draw_func(move |_, cr, w, h| {
+                let an = a.borrow();
+                paint::draw_chevrons(cr, w as f64, h as f64, true, an.up, &an);
+            });
+        }
+        {
+            let a = anim.clone();
+            widgets.arrows_down.set_draw_func(move |_, cr, w, h| {
+                let an = a.borrow();
+                paint::draw_chevrons(cr, w as f64, h as f64, false, an.down, &an);
+            });
+        }
+
+        // The content floats over a headerbar that paints nothing, so it has to start below it.
+        // AdwToolbarView publishes the bar's real height for exactly this.
+        widgets
+            .toolbar
+            .bind_property("top-bar-height", &widgets.content, "margin-top")
+            .sync_create()
+            .build();
+
+        // The note typography follows the blob's real size, so it fits on a phone and grows on
+        // a desktop without a table of breakpoints.
+        {
+            let s = sender.input_sender().clone();
+            widgets.blob.connect_resize(move |_, w, h| {
+                let _ = s.send(Msg::BlobResized((w.min(h) as f64).min(330.0)));
+            });
+        }
+
+        // --- the frame clock ------------------------------------------------------------
+        // 60 fps of motion never touches the relm4 update loop: the tick advances the shared
+        // animation state and asks the four areas to redraw.
+        {
+            let a = anim.clone();
+            let waves = widgets.waves.clone();
+            let blob = widgets.blob.clone();
+            let up = widgets.arrows_up.clone();
+            let down = widgets.arrows_down.clone();
+            let last = std::cell::Cell::new(0i64);
+            let arrows_was = std::cell::Cell::new((0f32, 0f32));
+            root.add_tick_callback(move |_, clock| {
+                let now = clock.frame_time();
+                let prev = last.replace(now);
+                let dt = if prev == 0 { 0.0 } else { (now - prev) as f64 / 1_000_000.0 };
+                // Clamp so a stalled frame (resize, wake from sleep) never jumps the motion.
+                let arrows = {
+                    let mut anim = a.borrow_mut();
+                    anim.step(dt.min(0.05));
+                    (anim.up, anim.down)
+                };
+                waves.queue_draw();
+                blob.queue_draw();
+                // An empty chevron row has nothing to repaint. Redraw while it shows, plus the
+                // one frame after it empties, so the last ghost is cleared.
+                let was = arrows_was.replace(arrows);
+                if arrows.0 > 0.004 || was.0 > 0.004 {
+                    up.queue_draw();
+                }
+                if arrows.1 > 0.004 || was.1 > 0.004 {
+                    down.queue_draw();
+                }
+                relm4::gtk::glib::ControlFlow::Continue
+            });
+        }
+
+        // --- follow the system theme live -----------------------------------------------
+        {
+            let style = adw::StyleManager::default();
+            let s = sender.input_sender().clone();
+            style.connect_dark_notify(move |_| {
+                let _ = s.send(Msg::ThemeChanged);
+            });
+            let s = sender.input_sender().clone();
+            style.connect_accent_color_notify(move |_| {
+                let _ = s.send(Msg::ThemeChanged);
+            });
+        }
+
+}
+
 #[relm4::component]
 impl SimpleComponent for App {
     type Init = ();
@@ -335,21 +439,34 @@ impl SimpleComponent for App {
             .launch(cfg)
             .forward(sender.input_sender(), Msg::CfgChanged);
 
-        // The detector runs on its own thread and posts every window back into the relm4 loop.
-        let freq_sender = sender.input_sender().clone();
-        let (engine, error) = match audio::start(move |freq| {
-            let _ = freq_sender.send(Msg::Freq(freq));
-        }) {
-            Ok(engine) => {
-                engine.set_hold_seconds(cfg.sustain);
-                (Some(engine), None)
+        // VIBES_DEMO_HZ pins the reading to a fixed frequency and leaves the microphone shut.
+        // It exists so the documentation screenshots can be taken without an instrument, and
+        // without playing a sound into whatever room the machine is sitting in.
+        let demo = std::env::var("VIBES_DEMO_HZ")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok());
+
+        // Otherwise the detector runs on its own thread and posts every window back into the
+        // relm4 loop.
+        let (freq, engine, error) = match demo {
+            Some(hz) => (hz, None, None),
+            None => {
+                let freq_sender = sender.input_sender().clone();
+                match audio::start(move |freq| {
+                    let _ = freq_sender.send(Msg::Freq(freq));
+                }) {
+                    Ok(engine) => {
+                        engine.set_hold_seconds(cfg.sustain);
+                        (-1.0, Some(engine), None)
+                    }
+                    Err(e) => (-1.0, None, Some(e)),
+                }
             }
-            Err(e) => (None, Some(e)),
         };
 
         let model = App {
             cfg,
-            freq: -1.0,
+            freq,
             error,
             anim: anim.clone(),
             engine,
@@ -360,98 +477,10 @@ impl SimpleComponent for App {
 
         let widgets = view_output!();
 
-        // --- painting -------------------------------------------------------------------
-        {
-            let a = anim.clone();
-            widgets
-                .waves
-                .set_draw_func(move |_, cr, w, h| paint::draw_waves(cr, w as f64, h as f64, &a.borrow()));
-        }
-        {
-            let a = anim.clone();
-            widgets
-                .blob
-                .set_draw_func(move |_, cr, w, h| paint::draw_blob(cr, w as f64, h as f64, &a.borrow()));
-        }
-        {
-            let a = anim.clone();
-            widgets.arrows_up.set_draw_func(move |_, cr, w, h| {
-                let an = a.borrow();
-                paint::draw_chevrons(cr, w as f64, h as f64, true, an.up, &an);
-            });
-        }
-        {
-            let a = anim.clone();
-            widgets.arrows_down.set_draw_func(move |_, cr, w, h| {
-                let an = a.borrow();
-                paint::draw_chevrons(cr, w as f64, h as f64, false, an.down, &an);
-            });
-        }
-
-        // The content floats over a headerbar that paints nothing, so it has to start below it.
-        // AdwToolbarView publishes the bar's real height for exactly this.
-        widgets
-            .toolbar
-            .bind_property("top-bar-height", &widgets.content, "margin-top")
-            .sync_create()
-            .build();
-
-        // The note typography follows the blob's real size, so it fits on a phone and grows on
-        // a desktop without a table of breakpoints.
-        {
-            let s = sender.input_sender().clone();
-            widgets.blob.connect_resize(move |_, w, h| {
-                let _ = s.send(Msg::BlobResized((w.min(h) as f64).min(330.0)));
-            });
-        }
-
-        // --- the frame clock ------------------------------------------------------------
-        // 60 fps of motion never touches the relm4 update loop: the tick advances the shared
-        // animation state and asks the four areas to redraw.
-        {
-            let a = anim.clone();
-            let waves = widgets.waves.clone();
-            let blob = widgets.blob.clone();
-            let up = widgets.arrows_up.clone();
-            let down = widgets.arrows_down.clone();
-            let last = std::cell::Cell::new(0i64);
-            let arrows_was = std::cell::Cell::new((0f32, 0f32));
-            root.add_tick_callback(move |_, clock| {
-                let now = clock.frame_time();
-                let prev = last.replace(now);
-                let dt = if prev == 0 { 0.0 } else { (now - prev) as f64 / 1_000_000.0 };
-                // Clamp so a stalled frame (resize, wake from sleep) never jumps the motion.
-                let arrows = {
-                    let mut anim = a.borrow_mut();
-                    anim.step(dt.min(0.05));
-                    (anim.up, anim.down)
-                };
-                waves.queue_draw();
-                blob.queue_draw();
-                // An empty chevron row has nothing to repaint. Redraw while it shows, plus the
-                // one frame after it empties, so the last ghost is cleared.
-                let was = arrows_was.replace(arrows);
-                if arrows.0 > 0.004 || was.0 > 0.004 {
-                    up.queue_draw();
-                }
-                if arrows.1 > 0.004 || was.1 > 0.004 {
-                    down.queue_draw();
-                }
-                relm4::gtk::glib::ControlFlow::Continue
-            });
-        }
-
-        // --- follow the system theme live -----------------------------------------------
-        {
-            let style = adw::StyleManager::default();
-            let s = sender.input_sender().clone();
-            style.connect_dark_notify(move |_| {
-                let _ = s.send(Msg::ThemeChanged);
-            });
-            let s = sender.input_sender().clone();
-            style.connect_accent_color_notify(move |_| {
-                let _ = s.send(Msg::ThemeChanged);
-            });
+        setup_painting(&widgets, &anim, &root, &sender);
+        if demo.is_some() {
+            // Screenshots of the app, not of whatever window frame this machine happens to draw.
+            root.set_decorated(false);
         }
 
         model.sync_anim();
