@@ -6,7 +6,7 @@ use std::f64::consts::PI;
 #[allow(deprecated)]
 use relm4::gtk::prelude::{StyleContextExt, WidgetExt};
 use relm4::{adw, gtk};
-use relm4::gtk::cairo::{Context, FillRule, LineCap, LineJoin};
+use relm4::gtk::cairo::{Context, LineCap, LineJoin};
 
 // ---------------------------------------------------------------------------------------------
 // Colour
@@ -255,10 +255,6 @@ pub struct Anim {
     pub vib_amp_target: f32,
     pub vib_amp: f32,
 
-    /// Microphone input level, 0..1 — shown while no note has been locked.
-    pub level_target: f32,
-    pub level: f32,
-
     pub up_target: f32,
     pub up: f32,
     pub down_target: f32,
@@ -290,8 +286,6 @@ impl Anim {
             vib_phase: 0.0,
             vib_amp_target: 0.0,
             vib_amp: 0.0,
-            level_target: 0.0,
-            level: 0.0,
             up_target: 0.0,
             up: 0.0,
             down_target: 0.0,
@@ -372,9 +366,6 @@ impl Anim {
         self.wobble_phase =
             (self.wobble_phase + dt32 / self.wobble_period).rem_euclid(1.0);
         self.vib_amp = approach(self.vib_amp, self.vib_amp_target, 0.20, dt32);
-        // A meter has to jump on the attack and fall back gently, like every VU ever built.
-        let tau = if self.level_target > self.level { 0.04 } else { 0.30 };
-        self.level = approach(self.level, self.level_target, tau, dt32);
         self.vib_phase = (self.vib_phase + self.vib_hz * dt32).rem_euclid(1.0);
     }
 }
@@ -551,34 +542,3 @@ pub fn draw_chevrons(cr: &Context, w: f64, h: f64, point_up: bool, appear: f32, 
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Input level
-// ---------------------------------------------------------------------------------------------
-
-/// A slim capsule that fills with the microphone level. It stands in for the readout while
-/// nothing is locked, and answers the one question a spinner cannot: is it hearing me?
-pub fn draw_meter(cr: &Context, w: f64, h: f64, a: &Anim) {
-    let p = &a.palette;
-    let track_h = h.min(10.0);
-    let y = (h - track_h) / 2.0;
-    let r = track_h / 2.0;
-
-    let capsule = |cr: &Context, x: f64, width: f64| {
-        if width <= 0.0 {
-            return;
-        }
-        let width = width.max(track_h);
-        cr.new_sub_path();
-        cr.arc(x + r, y + r, r, PI / 2.0, 1.5 * PI);
-        cr.arc(x + width - r, y + r, r, 1.5 * PI, PI / 2.0);
-        cr.close_path();
-    };
-
-    set_a(cr, p.fg, if p.dark { 0.16 } else { 0.12 });
-    capsule(cr, 0.0, w);
-    let _ = cr.fill();
-
-    set(cr, p.accent);
-    capsule(cr, 0.0, w * a.level as f64);
-    let _ = cr.fill();
-}

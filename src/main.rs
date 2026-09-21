@@ -48,8 +48,7 @@ struct App {
 
 #[derive(Debug)]
 enum Msg {
-    /// One detector window: the fundamental in Hz (or -1.0), and the input level 0..1.
-    Reading(f32, f32),
+    Freq(f32),
     OpenSettings,
     CfgChanged(Config),
     ThemeChanged,
@@ -294,9 +293,9 @@ impl SimpleComponent for App {
                                 #[watch]
                                 set_label: &model.readout(),
                             },
-                            #[name = "meter"]
-                            gtk::DrawingArea {
-                                set_size_request: (190, 10),
+                            gtk::Label {
+                                add_css_class: "hint",
+                                set_label: "Play a note",
                                 set_valign: gtk::Align::Center,
                                 #[watch]
                                 set_visible: model.freq <= 0.0,
@@ -338,8 +337,8 @@ impl SimpleComponent for App {
 
         // The detector runs on its own thread and posts every window back into the relm4 loop.
         let freq_sender = sender.input_sender().clone();
-        let (engine, error) = match audio::start(move |freq, level| {
-            let _ = freq_sender.send(Msg::Reading(freq, level));
+        let (engine, error) = match audio::start(move |freq| {
+            let _ = freq_sender.send(Msg::Freq(freq));
         }) {
             Ok(engine) => {
                 engine.set_hold_seconds(cfg.sustain);
@@ -373,12 +372,6 @@ impl SimpleComponent for App {
             widgets
                 .blob
                 .set_draw_func(move |_, cr, w, h| paint::draw_blob(cr, w as f64, h as f64, &a.borrow()));
-        }
-        {
-            let a = anim.clone();
-            widgets
-                .meter
-                .set_draw_func(move |_, cr, w, h| paint::draw_meter(cr, w as f64, h as f64, &a.borrow()));
         }
         {
             let a = anim.clone();
@@ -421,7 +414,6 @@ impl SimpleComponent for App {
             let blob = widgets.blob.clone();
             let up = widgets.arrows_up.clone();
             let down = widgets.arrows_down.clone();
-            let meter = widgets.meter.clone();
             let last = std::cell::Cell::new(0i64);
             let arrows_was = std::cell::Cell::new((0f32, 0f32));
             root.add_tick_callback(move |_, clock| {
@@ -436,9 +428,6 @@ impl SimpleComponent for App {
                 };
                 waves.queue_draw();
                 blob.queue_draw();
-                if meter.is_visible() {
-                    meter.queue_draw();
-                }
                 // An empty chevron row has nothing to repaint. Redraw while it shows, plus the
                 // one frame after it empties, so the last ghost is cleared.
                 let was = arrows_was.replace(arrows);
@@ -471,10 +460,7 @@ impl SimpleComponent for App {
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
-            Msg::Reading(freq, level) => {
-                self.freq = freq;
-                self.anim.borrow_mut().level_target = level;
-            }
+            Msg::Freq(freq) => self.freq = freq,
             Msg::OpenSettings => {
                 let win = self.settings.widget();
                 win.set_transient_for(Some(&self.window));

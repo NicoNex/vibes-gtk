@@ -24,9 +24,9 @@ impl Engine {
     }
 }
 
-/// Opens the default input device and reports on every window from a worker thread:
-/// the fundamental in Hz (or -1.0), and the input level as 0.0..=1.0.
-pub fn start(on_reading: impl Fn(f32, f32) + Send + 'static) -> Result<Engine, String> {
+/// Opens the default input device and reports the fundamental in Hz (or -1.0) from a worker
+/// thread, once per detection window.
+pub fn start(on_freq: impl Fn(f32) + Send + 'static) -> Result<Engine, String> {
     let device = cpal::default_host()
         .default_input_device()
         .ok_or("no microphone found")?;
@@ -108,22 +108,12 @@ pub fn start(on_reading: impl Fn(f32, f32) + Send + 'static) -> Result<Engine, S
                     }
                     // else: hold the last note through the decay tail / a brief dropout.
                 }
-                on_reading(reported, level(&window));
+                on_freq(reported);
             }
         }
     });
 
     Ok(Engine { _stream: stream, hold_ms })
-}
-
-/// Input level as 0.0..=1.0. RMS spans several orders of magnitude between a whisper and a
-/// struck string, so the meter reads in dB: -58 dBFS is the floor, -8 dBFS is full.
-fn level(window: &[f32]) -> f32 {
-    let rms = (window.iter().map(|v| v * v).sum::<f32>() / window.len() as f32).sqrt();
-    if rms <= 1e-6 {
-        return 0.0;
-    }
-    ((20.0 * rms.log10() + 58.0) / 50.0).clamp(0.0, 1.0)
 }
 
 fn median(values: &[f32]) -> Option<f32> {
