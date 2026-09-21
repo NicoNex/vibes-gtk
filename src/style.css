@@ -10,7 +10,7 @@
   letter-spacing: 0.09em;
   transition: background-color 260ms ease, color 260ms ease;
 }
-.chip.idle  { background: alpha(@window_fg_color, 0.12); color: @window_fg_color; }
+.chip.idle  { background: @card_bg_color; color: @window_fg_color; }
 .chip.tune  { background: @accent_bg_color;  color: @accent_fg_color; }
 .chip.sharp { background: @warning_bg_color; color: @warning_fg_color; }
 .chip.flat  { background: @error_bg_color;   color: @error_fg_color; }

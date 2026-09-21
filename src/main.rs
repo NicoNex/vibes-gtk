@@ -100,7 +100,9 @@ impl App {
         if self.freq > 0.0 {
             self.cfg.note_name(note_info(self.freq, self.cfg.a4).pitch_class)
         } else {
-            "—"
+            // Empty, not a dash: an em dash at this size reads as a redaction bar. The pill
+            // already says LISTENING and the hint below says what to do.
+            ""
         }
     }
 
@@ -431,7 +433,9 @@ impl SimpleComponent for App {
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
             // "inf" parses fine and then spins forever in the octave-shift loop.
-            .filter(|hz| hz.is_finite() && *hz > 0.0);
+            .filter(|hz| hz.is_finite() && *hz >= 0.0)
+            // 0 means "demo mode, but heard nothing" — the idle screen, with the mic still shut.
+            .map(|hz| if hz > 0.0 { hz } else { -1.0 });
 
         // Otherwise the detector runs on its own thread and posts every window back into the
         // relm4 loop.
