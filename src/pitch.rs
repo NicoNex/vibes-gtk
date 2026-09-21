@@ -22,7 +22,9 @@ pub fn note_info(freq: f32, a4: f32) -> NoteInfo {
     let nearest = midi.round() as i32;
     NoteInfo {
         pitch_class: nearest.rem_euclid(12) as usize,
-        octave: nearest / 12 - 1,
+        // div_euclid, not `/`: `/` truncates toward zero while pitch_class uses
+        // rem_euclid, and the two disagree below MIDI 0.
+        octave: nearest.div_euclid(12) - 1,
         cents: ((midi - nearest as f64) * 100.0) as f32,
     }
 }

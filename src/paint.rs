@@ -256,6 +256,10 @@ pub struct Anim {
     pub down: f32,
 }
 
+/// The blob stops growing here, so it scales down to a phone without becoming a dinner
+/// plate on a maximised desktop window. main.rs sizes the note's type from the same value.
+pub const MAX_BLOB_PX: f64 = 330.0;
+
 /// Max background scroll speed, in colour-periods per second.
 const MAX_WAVE_PPS: f32 = 0.22;
 
@@ -378,6 +382,10 @@ fn approach(cur: f32, target: f32, tau: f32, dt: f32) -> f32 {
 /// when flat / DOWN when sharp. The ripple swells with resonance as the pitch nears in-tune,
 /// where the bands settle and a soft accent wash confirms the lock.
 pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
+    // A widget can be allocated 0x0 mid-layout, and every formula below divides by one of these.
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
     let p = &a.palette;
     set(cr, p.bg);
     let _ = cr.paint();
@@ -468,6 +476,9 @@ fn cookie_path(cr: &Context, cx: f64, cy: f64, r: f64, rotation: f64, vib: f64, 
 }
 
 pub fn draw_blob(cr: &Context, w: f64, h: f64, a: &Anim) {
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
     let (cx, cy) = (w / 2.0, h / 2.0);
     // Breathe only once locked — the shape settles into a slow heartbeat.
     let breathe = if a.in_tune {
@@ -475,9 +486,7 @@ pub fn draw_blob(cr: &Context, w: f64, h: f64, a: &Anim) {
     } else {
         1.0
     };
-    // Fills whatever box it is given, up to a ceiling — so it scales down to a phone and stops
-    // growing into a dinner plate on a maximised desktop window.
-    let base = w.min(h).min(330.0) / 2.0 * 0.96;
+    let base = w.min(h).min(MAX_BLOB_PX) / 2.0 * 0.96;
     let r = base * breathe;
     // Triangle-wave sway rather than a sine: reaches the extremes with a touch more character.
     let osc = ((a.wobble_phase as f64 * 2.0 * PI).sin()) * a.wobble_amp as f64;
@@ -496,7 +505,7 @@ pub fn draw_blob(cr: &Context, w: f64, h: f64, a: &Anim) {
 
 /// Marching chevrons showing which way to turn the peg: up = raise (flat), down = lower (sharp).
 pub fn draw_chevrons(cr: &Context, w: f64, h: f64, point_up: bool, appear: f32, a: &Anim) {
-    if appear < 0.004 {
+    if appear < 0.004 || w <= 0.0 || h <= 0.0 {
         return;
     }
     let p = &a.palette;

@@ -37,14 +37,16 @@ pub fn start(on_freq: impl Fn(f32) + Send + 'static) -> Result<Engine, String> {
     let channels = supported.channels() as usize;
     let stream_config: cpal::StreamConfig = supported.config();
 
-    // The audio callback must never block, so it only hands samples off; YIN runs on the worker.
-    let (tx, rx) = mpsc::channel::<Vec<f32>>();
+    // The audio callback hands samples off and returns; YIN runs on the worker. The queue is
+    // bounded and the send never blocks: if the worker falls behind, the oldest audio is dropped
+    // rather than letting latency and memory grow without limit.
+    let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(8);
     let err_fn = |e| eprintln!("audio stream error: {e}");
     let stream = match supported.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
             stream_config,
             move |data: &[f32], _: &_| {
-                let _ = tx.send(data.iter().step_by(channels).copied().collect());
+                let _ = tx.try_send(mono(data, channels));
             },
             err_fn,
             None,
@@ -52,12 +54,8 @@ pub fn start(on_freq: impl Fn(f32) + Send + 'static) -> Result<Engine, String> {
         cpal::SampleFormat::I16 => device.build_input_stream(
             stream_config,
             move |data: &[i16], _: &_| {
-                let _ = tx.send(
-                    data.iter()
-                        .step_by(channels)
-                        .map(|v| *v as f32 / 32768.0)
-                        .collect(),
-                );
+                let frames: Vec<f32> = data.iter().map(|v| *v as f32 / 32768.0).collect();
+                let _ = tx.try_send(mono(&frames, channels));
             },
             err_fn,
             None,
@@ -114,6 +112,17 @@ pub fn start(on_freq: impl Fn(f32) + Send + 'static) -> Result<Engine, String> {
     });
 
     Ok(Engine { _stream: stream, hold_ms })
+}
+
+/// Folds an interleaved frame down to one channel by averaging. Taking channel 0 instead would
+/// leave the tuner silently deaf when the instrument is plugged into a second input.
+fn mono(data: &[f32], channels: usize) -> Vec<f32> {
+    if channels <= 1 {
+        return data.to_vec();
+    }
+    data.chunks(channels)
+        .map(|f| f.iter().sum::<f32>() / f.len() as f32)
+        .collect()
 }
 
 fn median(values: &[f32]) -> Option<f32> {

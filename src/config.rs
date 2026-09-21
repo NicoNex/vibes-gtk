@@ -5,12 +5,12 @@
 
 use std::path::PathBuf;
 
+use crate::pitch::{NOTE_NAMES_LETTER, NOTE_NAMES_SOLFEGE};
+
 /// Seconds a note is held after the string fades.
 pub const SUSTAIN_DEFAULT: f32 = 1.2;
 pub const A4_RANGE: (f32, f32) = (415.0, 466.0);
 pub const SUSTAIN_RANGE: (f32, f32) = (0.5, 2.5);
-
-use crate::pitch::{NOTE_NAMES_LETTER, NOTE_NAMES_SOLFEGE};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
@@ -25,6 +25,12 @@ impl Default for Config {
     }
 }
 
+/// `"nan"` and `"inf"` both parse as f32, and `clamp` passes NaN straight through — which would
+/// reach a GtkAdjustment and wedge the settings window. Only finite numbers get past here.
+fn number(text: &str) -> Option<f32> {
+    text.parse::<f32>().ok().filter(|v| v.is_finite())
+}
+
 fn path() -> PathBuf {
     let mut p = relm4::gtk::glib::user_config_dir();
     p.push("vibes");
@@ -34,13 +40,19 @@ fn path() -> PathBuf {
 
 impl Config {
     pub fn load() -> Self {
+        match std::fs::read_to_string(path()) {
+            Ok(text) => Config::parse(&text),
+            Err(_) => Config::default(),
+        }
+    }
+
+    fn parse(text: &str) -> Self {
         let mut cfg = Config::default();
-        let Ok(text) = std::fs::read_to_string(path()) else { return cfg };
         for line in text.lines() {
             let Some((key, value)) = line.split_once('=') else { continue };
             match (key.trim(), value.trim()) {
-                ("a4", v) => cfg.a4 = v.parse().unwrap_or(cfg.a4),
-                ("sustain", v) => cfg.sustain = v.parse().unwrap_or(cfg.sustain),
+                ("a4", v) => cfg.a4 = number(v).unwrap_or(cfg.a4),
+                ("sustain", v) => cfg.sustain = number(v).unwrap_or(cfg.sustain),
                 ("solfege", v) => cfg.solfege = v == "true",
                 _ => {}
             }
@@ -71,5 +83,37 @@ impl Config {
         } else {
             NOTE_NAMES_LETTER[pitch_class]
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_a_normal_file() {
+        let cfg = Config::parse("a4=442\nsustain=0.8\nsolfege=true\n");
+        assert_eq!(cfg.a4, 442.0);
+        assert_eq!(cfg.sustain, 0.8);
+        assert!(cfg.solfege);
+    }
+
+    #[test]
+    fn a_corrupt_file_never_yields_an_unusable_setting() {
+        // NaN survives f32::clamp, and inf and junk must not get through either.
+        for text in ["a4=nan", "a4=inf", "a4=banana", "a4=", "a4=1e9", "nonsense"] {
+            let cfg = Config::parse(text);
+            assert!(cfg.a4.is_finite(), "{text} produced {}", cfg.a4);
+            assert!((A4_RANGE.0..=A4_RANGE.1).contains(&cfg.a4), "{text} produced {}", cfg.a4);
+        }
+        let cfg = Config::parse("sustain=nan");
+        assert!(cfg.sustain.is_finite());
+    }
+
+    #[test]
+    fn unknown_keys_and_blank_lines_are_ignored() {
+        let cfg = Config::parse("\n# a comment\ncolour=blue\na4=415\n");
+        assert_eq!(cfg.a4, 415.0);
+        assert_eq!(cfg.sustain, SUSTAIN_DEFAULT);
     }
 }

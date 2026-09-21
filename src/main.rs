@@ -197,7 +197,7 @@ fn setup_painting(
     // a desktop without a table of breakpoints.
     let s = sender.input_sender().clone();
     widgets.blob.connect_resize(move |_, w, h| {
-        let _ = s.send(Msg::BlobResized((w.min(h) as f64).min(330.0)));
+        let _ = s.send(Msg::BlobResized((w.min(h) as f64).min(paint::MAX_BLOB_PX)));
     });
 
     // --- the frame clock ----------------------------------------------------------------
@@ -330,6 +330,17 @@ impl SimpleComponent for App {
                                 set_valign: gtk::Align::Center,
                                 set_spacing: 4,
 
+                                // The octave rides to the right of the note, which would push
+                                // the note itself off-centre in the blob. This invisible twin
+                                // balances it exactly, with no measuring and no guesswork.
+                                gtk::Label {
+                                    set_opacity: 0.0,
+                                    set_can_target: false,
+                                    #[watch]
+                                    set_label: &model.octave_text(),
+                                    #[watch]
+                                    set_attributes: Some(&model.octave_attrs()),
+                                },
                                 gtk::Label {
                                     #[watch]
                                     set_label: model.note_text(),
@@ -417,7 +428,9 @@ impl SimpleComponent for App {
         // without playing a sound into whatever room the machine is sitting in.
         let demo = std::env::var("VIBES_DEMO_HZ")
             .ok()
-            .and_then(|v| v.parse::<f32>().ok());
+            .and_then(|v| v.parse::<f32>().ok())
+            // "inf" parses fine and then spins forever in the octave-shift loop.
+            .filter(|hz| hz.is_finite() && *hz > 0.0);
 
         // Otherwise the detector runs on its own thread and posts every window back into the
         // relm4 loop.
@@ -445,7 +458,7 @@ impl SimpleComponent for App {
             engine,
             settings,
             window: root.clone(),
-            blob_px: 300.0,
+            blob_px: paint::MAX_BLOB_PX,
         };
 
         let widgets = view_output!();
@@ -478,9 +491,12 @@ impl SimpleComponent for App {
             Msg::BlobResized(px) => self.blob_px = px,
             Msg::ThemeChanged => {
                 let palette = Palette::current();
-                let mut anim = self.anim.borrow_mut();
-                anim.palette = palette;
-                anim.blob = palette.muted;
+                // Scoped: sync_anim borrows the same RefCell the moment this arm ends.
+                {
+                    let mut anim = self.anim.borrow_mut();
+                    anim.palette = palette;
+                    anim.blob = palette.muted;
+                }
             }
         }
         self.sync_anim();

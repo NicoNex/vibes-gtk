@@ -1,6 +1,9 @@
 //! The settings sheet — an `AdwPreferencesDialog`, which is adaptive for free: a centred sheet
 //! on a wide window, a full-height page on a narrow one.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use relm4::prelude::*;
 use relm4::{adw, gtk};
 
@@ -10,6 +13,8 @@ use crate::config::{Config, A4_RANGE, SUSTAIN_DEFAULT, SUSTAIN_RANGE};
 
 pub struct Settings {
     cfg: Config,
+    /// Mirrors `cfg` for the close handler, which cannot reach the model.
+    pending: Rc<Cell<Config>>,
 }
 
 #[derive(Debug)]
@@ -149,8 +154,15 @@ impl SimpleComponent for Settings {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = Settings { cfg };
+        let model = Settings { cfg, pending: Rc::new(Cell::new(cfg)) };
         let widgets = view_output!();
+
+        // Both scales emit value-changed for every pixel of a drag, so saving inside `update`
+        // meant rewriting the config file ~60 times a second on the UI thread. The window only
+        // hides (it is `hide_on_close`), so that is the moment to write.
+        let pending = model.pending.clone();
+        root.connect_hide(move |_| pending.get().save());
+
         ComponentParts { model, widgets }
     }
 
@@ -165,7 +177,7 @@ impl SimpleComponent for Settings {
             }
             SettingsMsg::Solfege(v) => self.cfg.solfege = v,
         }
-        self.cfg.save();
+        self.pending.set(self.cfg);
         let _ = sender.output(self.cfg);
     }
 }
