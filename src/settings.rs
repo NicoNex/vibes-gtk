@@ -40,107 +40,105 @@ impl SimpleComponent for Settings {
 
                 #[wrap(Some)]
                 set_content = &adw::PreferencesPage {
-
-                add = &adw::PreferencesGroup {
-                    set_title: "Reference pitch (A4)",
-                    #[wrap(Some)]
-                    set_header_suffix = &gtk::Label {
-                        add_css_class: "bignum",
-                        #[watch]
-                        set_label: &format!("{} Hz", model.cfg.a4.round() as i32),
-                    },
-
-                    set_description: Some("What the tuner calls concert A."),
-
-                    adw::PreferencesRow {
-                        set_activatable: false,
-                        set_focusable: false,
-                        add_css_class: "activatable-no",
-
+                    add = &adw::PreferencesGroup {
+                        set_title: "Reference pitch (A4)",
                         #[wrap(Some)]
-                        set_child = &gtk::Scale {
-                            set_margin_all: 12,
-                            set_hexpand: true,
-                            set_draw_value: false,
-                            set_round_digits: 0,
-                            set_adjustment: &gtk::Adjustment::new(
-                                model.cfg.a4 as f64, A4_RANGE.0 as f64, A4_RANGE.1 as f64, 1.0, 5.0, 0.0,
-                            ),
-                            add_mark: (440.0, gtk::PositionType::Bottom, None),
-                            connect_value_changed[sender] => move |s| {
-                                sender.input(SettingsMsg::A4(s.value()));
-                            },
-                        },
-                    },
-                },
-
-                add = &adw::PreferencesGroup {
-                    set_title: "Sustain",
-                    set_description: Some("How long a note is kept after the string fades."),
-                    #[wrap(Some)]
-                    set_header_suffix = &gtk::Box {
-                        set_spacing: 10,
-                        set_valign: gtk::Align::Center,
-
-                        gtk::Label {
+                        set_header_suffix = &gtk::Label {
                             add_css_class: "bignum",
                             #[watch]
-                            set_label: &format!("{:.1} s", model.cfg.sustain),
+                            set_label: &format!("{} Hz", model.cfg.a4.round() as i32),
                         },
-                        gtk::Label {
-                            add_css_class: "badge",
-                            set_label: "DEFAULT",
+
+                        set_description: Some("What the tuner calls concert A."),
+
+                        adw::PreferencesRow {
+                            set_activatable: false,
+                            set_focusable: false,
+
+                            #[wrap(Some)]
+                            set_child = &gtk::Scale {
+                                set_margin_all: 12,
+                                set_hexpand: true,
+                                set_draw_value: false,
+                                set_round_digits: 0,
+                                set_adjustment: &gtk::Adjustment::new(
+                                    model.cfg.a4 as f64, A4_RANGE.0 as f64, A4_RANGE.1 as f64, 1.0, 5.0, 0.0,
+                                ),
+                                add_mark: (440.0, gtk::PositionType::Bottom, None),
+                                connect_value_changed[sender] => move |s| {
+                                    sender.input(SettingsMsg::A4(s.value()));
+                                },
+                            },
+                        },
+                    },
+
+                    add = &adw::PreferencesGroup {
+                        set_title: "Sustain",
+                        set_description: Some("How long a note is kept after the string fades."),
+                        #[wrap(Some)]
+                        set_header_suffix = &gtk::Box {
+                            set_spacing: 10,
                             set_valign: gtk::Align::Center,
-                            #[watch]
-                            set_visible: (model.cfg.sustain - SUSTAIN_DEFAULT).abs() < 0.001,
+
+                            gtk::Label {
+                                add_css_class: "bignum",
+                                #[watch]
+                                set_label: &format!("{:.1} s", model.cfg.sustain),
+                            },
+                            gtk::Label {
+                                add_css_class: "badge",
+                                set_label: "DEFAULT",
+                                set_valign: gtk::Align::Center,
+                                #[watch]
+                                set_visible: (model.cfg.sustain - SUSTAIN_DEFAULT).abs() < 0.001,
+                            },
                         },
-                    },
 
-                    adw::PreferencesRow {
-                        set_activatable: false,
-                        set_focusable: false,
+                        adw::PreferencesRow {
+                            set_activatable: false,
+                            set_focusable: false,
 
-                        #[wrap(Some)]
-                        set_child = &gtk::Scale {
-                            set_margin_all: 12,
-                            set_hexpand: true,
-                            set_draw_value: false,
-                            set_round_digits: 1,
-                            set_adjustment: &gtk::Adjustment::new(
-                                model.cfg.sustain as f64, SUSTAIN_RANGE.0 as f64, SUSTAIN_RANGE.1 as f64,
-                                0.1, 0.5, 0.0,
-                            ),
-                            add_mark: (SUSTAIN_DEFAULT as f64, gtk::PositionType::Bottom, None),
-                            // Written back so the magnetic detent below actually moves the knob.
-                            #[watch]
-                            set_value: model.cfg.sustain as f64,
-                            connect_value_changed[sender] => move |s| {
-                                sender.input(SettingsMsg::Sustain(s.value()));
+                            #[wrap(Some)]
+                            set_child = &gtk::Scale {
+                                set_margin_all: 12,
+                                set_hexpand: true,
+                                set_draw_value: false,
+                                set_round_digits: 1,
+                                set_adjustment: &gtk::Adjustment::new(
+                                    model.cfg.sustain as f64, SUSTAIN_RANGE.0 as f64, SUSTAIN_RANGE.1 as f64,
+                                    0.1, 0.5, 0.0,
+                                ),
+                                add_mark: (SUSTAIN_DEFAULT as f64, gtk::PositionType::Bottom, None),
+                                // Written back so the magnetic detent below actually moves the knob.
+                                #[watch]
+                                set_value: model.cfg.sustain as f64,
+                                connect_value_changed[sender] => move |s| {
+                                    sender.input(SettingsMsg::Sustain(s.value()));
+                                },
                             },
                         },
                     },
-                },
 
-                add = &adw::PreferencesGroup {
-                    set_title: "Note names",
+                    add = &adw::PreferencesGroup {
+                        set_title: "Note names",
 
-                    adw::PreferencesRow {
-                        set_activatable: false,
-                        set_focusable: false,
+                        adw::PreferencesRow {
+                            set_activatable: false,
+                            set_focusable: false,
 
-                        #[wrap(Some)]
-                        set_child = &adw::ToggleGroup {
-                            set_margin_all: 12,
-                            set_hexpand: true,
-                            add: adw::Toggle::builder().label("A B C").build(),
-                            add: adw::Toggle::builder().label("Do Re Mi").build(),
-                            set_active: model.cfg.solfege as u32,
-                            connect_active_notify[sender] => move |g| {
-                                sender.input(SettingsMsg::Solfege(g.active() == 1));
+                            #[wrap(Some)]
+                            set_child = &adw::ToggleGroup {
+                                set_margin_all: 12,
+                                set_hexpand: true,
+                                add: adw::Toggle::builder().label("A B C").build(),
+                                add: adw::Toggle::builder().label("Do Re Mi").build(),
+                                set_active: model.cfg.solfege as u32,
+                                connect_active_notify[sender] => move |g| {
+                                    sender.input(SettingsMsg::Solfege(g.active() == 1));
+                                },
                             },
                         },
                     },
-                },
                 },
             },
         }
@@ -158,9 +156,7 @@ impl SimpleComponent for Settings {
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
-            SettingsMsg::A4(v) => {
-                self.cfg.a4 = (v as f32).round().clamp(A4_RANGE.0, A4_RANGE.1);
-            }
+            SettingsMsg::A4(v) => self.cfg.a4 = (v as f32).round().clamp(A4_RANGE.0, A4_RANGE.1),
             SettingsMsg::Sustain(v) => {
                 // Magnetic detent on the default — the slider pulls into 1.2 s as you pass it.
                 let raw = v as f32;

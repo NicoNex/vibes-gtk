@@ -30,13 +30,13 @@ fn scene(name: &str, dark: bool, freq: f32, cents: f32) {
     let blob = 312.0;
     let top = (h - (44.0 + 76.0 + blob + 76.0 + 48.0)) / 2.0;
 
-    section(&cr, 0.0, top + 44.0, w, 76.0, |cr| {
+    section(&cr, 0.0, top + 44.0, w, |cr| {
         paint::draw_chevrons(cr, 300.0, 76.0, true, anim.up, &anim)
     });
-    section(&cr, (w - blob) / 2.0, top + 120.0, blob, blob, |cr| {
+    section(&cr, (w - blob) / 2.0, top + 120.0, blob, |cr| {
         paint::draw_blob(cr, blob, blob, &anim)
     });
-    section(&cr, 0.0, top + 120.0 + blob, w, 76.0, |cr| {
+    section(&cr, 0.0, top + 120.0 + blob, w, |cr| {
         paint::draw_chevrons(cr, 300.0, 76.0, false, anim.down, &anim)
     });
 
@@ -45,7 +45,7 @@ fn scene(name: &str, dark: bool, freq: f32, cents: f32) {
     println!("wrote /tmp/vibes-{name}.png");
 }
 
-fn section(cr: &Context, x: f64, y: f64, w: f64, _h: f64, draw: impl FnOnce(&Context)) {
+fn section(cr: &Context, x: f64, y: f64, w: f64, draw: impl FnOnce(&Context)) {
     cr.save().unwrap();
     // Chevrons are drawn centred in their own 300-wide box, so centre that box in the window.
     cr.translate(if w > 300.0 { x + (w - 300.0) / 2.0 } else { x }, y);

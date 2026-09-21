@@ -82,32 +82,21 @@ impl App {
         }
     }
 
-    fn chip_label(&self) -> &'static str {
+    /// The status pill: what it says, and the CSS class that colours it.
+    fn chip(&self) -> (&'static str, &'static str) {
         match () {
-            _ if self.freq <= 0.0 => "LISTENING",
-            _ if self.in_tune() => "IN TUNE",
-            _ if self.cents() > 0.0 => "SHARP  ↓", // too high → tune down
-            _ => "FLAT  ↑",                        // too low  → tune up
+            _ if self.freq <= 0.0 => ("LISTENING", "idle"),
+            _ if self.in_tune() => ("IN TUNE", "tune"),
+            _ if self.cents() > 0.0 => ("SHARP  ↓", "sharp"), // too high → tune down
+            _ => ("FLAT  ↑", "flat"),                         // too low  → tune up
         }
     }
 
-    fn chip_classes(&self) -> Vec<&'static str> {
-        let state = match () {
-            _ if self.freq <= 0.0 => "idle",
-            _ if self.in_tune() => "tune",
-            _ if self.cents() > 0.0 => "sharp",
-            _ => "flat",
-        };
-        vec!["chip", state]
-    }
-
-    fn note_text(&self) -> String {
+    fn note_text(&self) -> &'static str {
         if self.freq > 0.0 {
-            self.cfg
-                .note_name(note_info(self.freq, self.cfg.a4).pitch_class)
-                .to_string()
+            self.cfg.note_name(note_info(self.freq, self.cfg.a4).pitch_class)
         } else {
-            "—".to_string()
+            "—"
         }
     }
 
@@ -119,9 +108,9 @@ impl App {
         }
     }
 
-    fn note_classes(&self, base: &'static str) -> Vec<&'static str> {
+    fn note_classes(&self, base: &'static str) -> [&'static str; 2] {
         let ink = if self.state_color().wants_light_text() { "on-dark" } else { "on-light" };
-        vec![base, ink]
+        [base, ink]
     }
 
     /// The note is sized from the blob it sits in, not from a fixed stack of CSS sizes: that is
@@ -168,108 +157,93 @@ impl App {
 
 // ---------------------------------------------------------------------------------------------
 
-/// Wires the drawing functions, the frame clock and the live theme watch onto the widgets.
-/// Shared by the normal start-up path and the screenshot one.
+/// Wires the drawing functions, the frame clock and the live theme watch onto the widgets —
+/// all the plumbing `init` would otherwise have to carry.
 fn setup_painting(
     widgets: &AppWidgets,
     anim: &Rc<RefCell<Anim>>,
     root: &adw::ApplicationWindow,
     sender: &ComponentSender<App>,
 ) {
-        // --- painting -------------------------------------------------------------------
-        {
-            let a = anim.clone();
-            widgets
-                .waves
-                .set_draw_func(move |_, cr, w, h| paint::draw_waves(cr, w as f64, h as f64, &a.borrow()));
-        }
-        {
-            let a = anim.clone();
-            widgets
-                .blob
-                .set_draw_func(move |_, cr, w, h| paint::draw_blob(cr, w as f64, h as f64, &a.borrow()));
-        }
-        {
-            let a = anim.clone();
-            widgets.arrows_up.set_draw_func(move |_, cr, w, h| {
-                let an = a.borrow();
-                paint::draw_chevrons(cr, w as f64, h as f64, true, an.up, &an);
-            });
-        }
-        {
-            let a = anim.clone();
-            widgets.arrows_down.set_draw_func(move |_, cr, w, h| {
-                let an = a.borrow();
-                paint::draw_chevrons(cr, w as f64, h as f64, false, an.down, &an);
-            });
-        }
+    // --- painting -----------------------------------------------------------------------
+    let a = anim.clone();
+    widgets
+        .waves
+        .set_draw_func(move |_, cr, w, h| paint::draw_waves(cr, w as f64, h as f64, &a.borrow()));
+    let a = anim.clone();
+    widgets
+        .blob
+        .set_draw_func(move |_, cr, w, h| paint::draw_blob(cr, w as f64, h as f64, &a.borrow()));
+    let a = anim.clone();
+    widgets.arrows_up.set_draw_func(move |_, cr, w, h| {
+        let an = a.borrow();
+        paint::draw_chevrons(cr, w as f64, h as f64, true, an.up, &an);
+    });
+    let a = anim.clone();
+    widgets.arrows_down.set_draw_func(move |_, cr, w, h| {
+        let an = a.borrow();
+        paint::draw_chevrons(cr, w as f64, h as f64, false, an.down, &an);
+    });
 
-        // The content floats over a headerbar that paints nothing, so it has to start below it.
-        // AdwToolbarView publishes the bar's real height for exactly this.
-        widgets
-            .toolbar
-            .bind_property("top-bar-height", &widgets.content, "margin-top")
-            .sync_create()
-            .build();
+    // The content floats over a headerbar that paints nothing, so it has to start below it.
+    // AdwToolbarView publishes the bar's real height for exactly this.
+    widgets
+        .toolbar
+        .bind_property("top-bar-height", &widgets.content, "margin-top")
+        .sync_create()
+        .build();
 
-        // The note typography follows the blob's real size, so it fits on a phone and grows on
-        // a desktop without a table of breakpoints.
-        {
-            let s = sender.input_sender().clone();
-            widgets.blob.connect_resize(move |_, w, h| {
-                let _ = s.send(Msg::BlobResized((w.min(h) as f64).min(330.0)));
-            });
+    // The note typography follows the blob's real size, so it fits on a phone and grows on
+    // a desktop without a table of breakpoints.
+    let s = sender.input_sender().clone();
+    widgets.blob.connect_resize(move |_, w, h| {
+        let _ = s.send(Msg::BlobResized((w.min(h) as f64).min(330.0)));
+    });
+
+    // --- the frame clock ----------------------------------------------------------------
+    // 60 fps of motion never touches the relm4 update loop: the tick advances the shared
+    // animation state and asks the four areas to redraw.
+    let a = anim.clone();
+    let waves = widgets.waves.clone();
+    let blob = widgets.blob.clone();
+    let up = widgets.arrows_up.clone();
+    let down = widgets.arrows_down.clone();
+    let last = std::cell::Cell::new(0i64);
+    let arrows_was = std::cell::Cell::new((0f32, 0f32));
+    root.add_tick_callback(move |_, clock| {
+        let now = clock.frame_time();
+        let prev = last.replace(now);
+        let dt = if prev == 0 { 0.0 } else { (now - prev) as f64 / 1_000_000.0 };
+        // Clamp so a stalled frame (resize, wake from sleep) never jumps the motion.
+        let arrows = {
+            let mut anim = a.borrow_mut();
+            anim.step(dt.min(0.05));
+            (anim.up, anim.down)
+        };
+        waves.queue_draw();
+        blob.queue_draw();
+        // An empty chevron row has nothing to repaint. Redraw while it shows, plus the
+        // one frame after it empties, so the last ghost is cleared.
+        let was = arrows_was.replace(arrows);
+        if arrows.0 > 0.004 || was.0 > 0.004 {
+            up.queue_draw();
         }
-
-        // --- the frame clock ------------------------------------------------------------
-        // 60 fps of motion never touches the relm4 update loop: the tick advances the shared
-        // animation state and asks the four areas to redraw.
-        {
-            let a = anim.clone();
-            let waves = widgets.waves.clone();
-            let blob = widgets.blob.clone();
-            let up = widgets.arrows_up.clone();
-            let down = widgets.arrows_down.clone();
-            let last = std::cell::Cell::new(0i64);
-            let arrows_was = std::cell::Cell::new((0f32, 0f32));
-            root.add_tick_callback(move |_, clock| {
-                let now = clock.frame_time();
-                let prev = last.replace(now);
-                let dt = if prev == 0 { 0.0 } else { (now - prev) as f64 / 1_000_000.0 };
-                // Clamp so a stalled frame (resize, wake from sleep) never jumps the motion.
-                let arrows = {
-                    let mut anim = a.borrow_mut();
-                    anim.step(dt.min(0.05));
-                    (anim.up, anim.down)
-                };
-                waves.queue_draw();
-                blob.queue_draw();
-                // An empty chevron row has nothing to repaint. Redraw while it shows, plus the
-                // one frame after it empties, so the last ghost is cleared.
-                let was = arrows_was.replace(arrows);
-                if arrows.0 > 0.004 || was.0 > 0.004 {
-                    up.queue_draw();
-                }
-                if arrows.1 > 0.004 || was.1 > 0.004 {
-                    down.queue_draw();
-                }
-                relm4::gtk::glib::ControlFlow::Continue
-            });
+        if arrows.1 > 0.004 || was.1 > 0.004 {
+            down.queue_draw();
         }
+        relm4::gtk::glib::ControlFlow::Continue
+    });
 
-        // --- follow the system theme live -----------------------------------------------
-        {
-            let style = adw::StyleManager::default();
-            let s = sender.input_sender().clone();
-            style.connect_dark_notify(move |_| {
-                let _ = s.send(Msg::ThemeChanged);
-            });
-            let s = sender.input_sender().clone();
-            style.connect_accent_color_notify(move |_| {
-                let _ = s.send(Msg::ThemeChanged);
-            });
-        }
-
+    // --- follow the system theme live ---------------------------------------------------
+    let style = adw::StyleManager::default();
+    let s = sender.input_sender().clone();
+    style.connect_dark_notify(move |_| {
+        let _ = s.send(Msg::ThemeChanged);
+    });
+    let s = sender.input_sender().clone();
+    style.connect_accent_color_notify(move |_| {
+        let _ = s.send(Msg::ThemeChanged);
+    });
 }
 
 #[relm4::component]
@@ -330,9 +304,9 @@ impl SimpleComponent for App {
                         gtk::Label {
                             set_halign: gtk::Align::Center,
                             #[watch]
-                            set_label: model.chip_label(),
+                            set_label: model.chip().0,
                             #[watch]
-                            set_css_classes: &model.chip_classes(),
+                            set_css_classes: &["chip", model.chip().1],
                         },
 
                         // Arrows above the note point UP when the pitch is flat (raise it).
@@ -358,7 +332,7 @@ impl SimpleComponent for App {
 
                                 gtk::Label {
                                     #[watch]
-                                    set_label: &model.note_text(),
+                                    set_label: model.note_text(),
                                     #[watch]
                                     set_css_classes: &model.note_classes("note"),
                                     #[watch]
@@ -433,7 +407,6 @@ impl SimpleComponent for App {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let cfg = Config::load();
-        let anim = Rc::new(RefCell::new(Anim::new(Palette::current())));
 
         let settings = Settings::builder()
             .launch(cfg)
@@ -468,7 +441,7 @@ impl SimpleComponent for App {
             cfg,
             freq,
             error,
-            anim: anim.clone(),
+            anim: Rc::new(RefCell::new(Anim::new(Palette::current()))),
             engine,
             settings,
             window: root.clone(),
@@ -477,10 +450,11 @@ impl SimpleComponent for App {
 
         let widgets = view_output!();
 
-        setup_painting(&widgets, &anim, &root, &sender);
-        if demo.is_some() {
-            // Screenshots of the app, not of whatever window frame this machine happens to draw.
-            root.set_decorated(false);
+        setup_painting(&widgets, &model.anim, &root, &sender);
+        // VIBES_DEMO_SETTINGS opens the settings window on start-up, so it can be photographed
+        // without driving the pointer.
+        if demo.is_some() && std::env::var("VIBES_DEMO_SETTINGS").is_ok() {
+            sender.input(Msg::OpenSettings);
         }
 
         model.sync_anim();

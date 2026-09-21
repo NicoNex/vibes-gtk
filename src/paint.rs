@@ -87,7 +87,6 @@ impl Rgb {
 /// Android original derives itself from the wallpaper. Light and dark are separate recipes.
 #[derive(Clone, Copy, PartialEq)]
 pub struct Palette {
-    pub dark: bool,
     pub bg: Rgb,
     pub fg: Rgb,
     /// Three related-but-distinct tonalities for the wave field.
@@ -135,19 +134,18 @@ impl Palette {
         let dark = sm.is_dark();
         let probe = gtk::Label::new(None);
 
-        let a = sm.accent_color().to_rgba();
+        let rgba = sm.accent_color().to_rgba();
         let accent = theme_color(&probe, "accent_bg_color")
-            .unwrap_or(Rgb(a.red() as f64, a.green() as f64, a.blue() as f64));
+            .unwrap_or(Rgb(rgba.red() as f64, rgba.green() as f64, rgba.blue() as f64));
 
         let mut palette = Palette::from_accent(accent, dark);
         if let Some(c) = theme_color(&probe, "window_bg_color") {
             palette.bg = c.mix(accent, if dark { 0.05 } else { 0.045 });
-            palette.muted = palette.bg.mix(palette.fg, 0.18);
         }
         if let Some(c) = theme_color(&probe, "window_fg_color") {
             palette.fg = c;
-            palette.muted = palette.bg.mix(palette.fg, 0.18);
         }
+        palette.muted = palette.bg.mix(palette.fg, 0.18);
         if let Some(c) = theme_color(&probe, "error_bg_color") {
             palette.error = c;
         }
@@ -162,14 +160,12 @@ impl Palette {
         let start = wheel_index(sm.accent_color());
         let shade = if dark { 5 } else { 1 };
         let toward_ground = if dark { 0.55 } else { 0.32 };
-        let from_palette: Option<Vec<Rgb>> = (0..3)
-            .map(|i| {
-                theme_color(&probe, &format!("{}_{}", WHEEL[(start + i) % WHEEL.len()], shade))
-                    .map(|c| c.mix(palette.bg, toward_ground))
-            })
-            .collect();
-        if let Some(bands) = from_palette {
-            palette.bands = [bands[0], bands[1], bands[2]];
+        let from_palette: [Option<Rgb>; 3] = std::array::from_fn(|i| {
+            theme_color(&probe, &format!("{}_{}", WHEEL[(start + i) % WHEEL.len()], shade))
+                .map(|c| c.mix(palette.bg, toward_ground))
+        });
+        if let [Some(a), Some(b), Some(c)] = from_palette {
+            palette.bands = [a, b, c];
         }
         palette
     }
@@ -203,7 +199,6 @@ impl Palette {
         });
 
         Palette {
-            dark,
             bg,
             fg,
             bands,

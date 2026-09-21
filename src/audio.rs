@@ -42,7 +42,7 @@ pub fn start(on_freq: impl Fn(f32) + Send + 'static) -> Result<Engine, String> {
     let err_fn = |e| eprintln!("audio stream error: {e}");
     let stream = match supported.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
-            stream_config.clone(),
+            stream_config,
             move |data: &[f32], _: &_| {
                 let _ = tx.send(data.iter().step_by(channels).copied().collect());
             },
@@ -50,7 +50,7 @@ pub fn start(on_freq: impl Fn(f32) + Send + 'static) -> Result<Engine, String> {
             None,
         ),
         cpal::SampleFormat::I16 => device.build_input_stream(
-            stream_config.clone(),
+            stream_config,
             move |data: &[i16], _: &_| {
                 let _ = tx.send(
                     data.iter()
@@ -80,8 +80,8 @@ pub fn start(on_freq: impl Fn(f32) + Send + 'static) -> Result<Engine, String> {
         while let Ok(chunk) = rx.recv() {
             buf.extend_from_slice(&chunk);
             while buf.len() >= WINDOW {
-                let window: Vec<f32> = buf.drain(..WINDOW).collect();
-                let p = yin_pitch(&window, sample_rate, 0.15);
+                let p = yin_pitch(&buf[..WINDOW], sample_rate, 0.15);
+                buf.drain(..WINDOW);
                 if p > 0.0 {
                     silent = 0;
                     let mut pc = p;
