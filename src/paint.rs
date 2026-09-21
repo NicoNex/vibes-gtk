@@ -3,10 +3,10 @@
 
 use std::f64::consts::PI;
 
+use relm4::gtk::cairo::{Context, LineCap, LineJoin};
 #[allow(deprecated)]
 use relm4::gtk::prelude::{StyleContextExt, WidgetExt};
 use relm4::{adw, gtk};
-use relm4::gtk::cairo::{Context, LineCap, LineJoin};
 
 // ---------------------------------------------------------------------------------------------
 // Colour
@@ -35,7 +35,11 @@ impl Rgb {
     /// True when white text sits better on this colour than black — WCAG relative luminance.
     pub fn wants_light_text(self) -> bool {
         fn lin(c: f64) -> f64 {
-            if c <= 0.03928 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+            if c <= 0.03928 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
         }
         0.2126 * lin(self.0) + 0.7152 * lin(self.1) + 0.0722 * lin(self.2) < 0.45
     }
@@ -135,8 +139,11 @@ impl Palette {
         let probe = gtk::Label::new(None);
 
         let rgba = sm.accent_color().to_rgba();
-        let accent = theme_color(&probe, "accent_bg_color")
-            .unwrap_or(Rgb(rgba.red() as f64, rgba.green() as f64, rgba.blue() as f64));
+        let accent = theme_color(&probe, "accent_bg_color").unwrap_or(Rgb(
+            rgba.red() as f64,
+            rgba.green() as f64,
+            rgba.blue() as f64,
+        ));
 
         let mut palette = Palette::from_accent(accent, dark);
         if let Some(c) = theme_color(&probe, "window_bg_color") {
@@ -193,20 +200,13 @@ impl Palette {
         let bands = std::array::from_fn(|i| {
             Rgb::from_hsl(
                 h + hues[i],
-                (s * sats[i] * 1.6).clamp(if dark { 0.12 } else { 0.28 }, if dark { 0.30 } else { 0.68 }),
+                (s * sats[i] * 1.6)
+                    .clamp(if dark { 0.12 } else { 0.28 }, if dark { 0.30 } else { 0.68 }),
                 lights[i],
             )
         });
 
-        Palette {
-            bg,
-            fg,
-            bands,
-            accent,
-            error,
-            warning,
-            muted: bg.mix(fg, 0.18),
-        }
+        Palette { bg, fg, bands, accent, error, warning, muted: bg.mix(fg, 0.18) }
     }
 }
 
@@ -299,24 +299,26 @@ impl Anim {
         self.energy_target = closeness;
         // Flat (cents < 0) drifts the bands UP, sharp (cents > 0) DOWN, faster the further from
         // centre, still when perfectly in tune.
-        self.speed_target = if has_pitch {
-            MAX_WAVE_PPS * (cents / 50.0).clamp(-1.0, 1.0)
-        } else {
-            0.0
-        };
+        self.speed_target =
+            if has_pitch { MAX_WAVE_PPS * (cents / 50.0).clamp(-1.0, 1.0) } else { 0.0 };
         self.in_tune = in_tune;
-        self.blob_target = match () {
-            _ if !has_pitch => self.palette.muted,
-            _ if in_tune => self.palette.accent,
-            _ if cents > 0.0 => self.palette.warning,
-            _ => self.palette.error,
+        self.blob_target = if !has_pitch {
+            self.palette.muted
+        } else if in_tune {
+            self.palette.accent
+        } else if cents > 0.0 {
+            self.palette.warning
+        } else {
+            self.palette.error
         };
         // Wobble character encodes state: a calm sway when idle, a nervous fast wobble while a
         // note is off pitch, settling once locked.
-        let (amp, period) = match () {
-            _ if !has_pitch => (3.0, 2.8),
-            _ if in_tune => (1.5, 2.2),
-            _ => (7.0, 0.78),
+        let (amp, period) = if !has_pitch {
+            (3.0, 2.8)
+        } else if in_tune {
+            (1.5, 2.2)
+        } else {
+            (7.0, 0.78)
         };
         self.wobble_amp_target = amp;
         self.wobble_period = period;
@@ -334,10 +336,12 @@ impl Anim {
             self.vib_hz = hz;
         }
         // It rings hard while the note is off, and calms to a shimmer once locked.
-        self.vib_amp_target = match () {
-            _ if !has_pitch => 0.0,
-            _ if in_tune => 0.016,
-            _ => 0.020 + 0.030 * (cents.abs() / 50.0).min(1.0),
+        self.vib_amp_target = if !has_pitch {
+            0.0
+        } else if in_tune {
+            0.016
+        } else {
+            0.020 + 0.030 * (cents.abs() / 50.0).min(1.0)
         };
         self.up_target = if has_pitch && !in_tune && cents < 0.0 { 1.0 } else { 0.0 };
         self.down_target = if has_pitch && !in_tune && cents > 0.0 { 1.0 } else { 0.0 };
@@ -362,8 +366,7 @@ impl Anim {
         // Frame-driven scroll: position integrates the (variable, signed) speed, so changing
         // tempo or direction never teleports. Wraps at one colour period → no seam.
         self.scroll = (self.scroll + self.speed * dt32).rem_euclid(1.0);
-        self.wobble_phase =
-            (self.wobble_phase + dt32 / self.wobble_period).rem_euclid(1.0);
+        self.wobble_phase = (self.wobble_phase + dt32 / self.wobble_period).rem_euclid(1.0);
         self.vib_amp = approach(self.vib_amp, self.vib_amp_target, 0.20, dt32);
         self.vib_phase = (self.vib_phase + self.vib_hz * dt32).rem_euclid(1.0);
     }
@@ -397,8 +400,8 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
     let thickness = spacing * 0.62;
     let kx = 1.5 * 2.0 * PI;
     let ripple = a.time * (2.0 * PI / 3.2); // one full traverse every 3.2 s
-    // One vertex every ~3 device pixels: fine enough that no facet shows on a crest, and the
-    // cost scales with the window instead of with a fixed vertex budget.
+                                            // One vertex every ~3 device pixels: fine enough that no facet shows on a crest, and the
+                                            // cost scales with the window instead of with a fixed vertex budget.
     let step = 3.0;
     let count = (h / spacing) as i32;
 
@@ -416,20 +419,18 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
         // three tonalities never trace the same curve — the field reads as woven, not ruled.
         let swell = [1.0, 0.78, 1.18][kk];
         let phase = kk as f64 * 2.094;
-        let mut x = 0.0;
-        let mut first = true;
-        while x <= w {
+        for i in 0..=(w / step) as usize {
+            let x = (i as f64 * step).min(w);
             let u = kx * (x / w);
-            let yy = y
-                + amp * swell * ((u + ripple + phase).sin()
+            let yy = y + amp
+                * swell
+                * ((u + ripple + phase).sin()
                     + 0.26 * (2.0 * u + 1.7 * ripple + phase * 1.6).sin());
-            if first {
+            if i == 0 {
                 cr.move_to(x, yy);
-                first = false;
             } else {
                 cr.line_to(x, yy);
             }
-            x += step;
         }
         let _ = cr.stroke();
     }
@@ -481,11 +482,7 @@ pub fn draw_blob(cr: &Context, w: f64, h: f64, a: &Anim) {
     }
     let (cx, cy) = (w / 2.0, h / 2.0);
     // Breathe only once locked — the shape settles into a slow heartbeat.
-    let breathe = if a.in_tune {
-        1.0 + 0.025 * (a.time * 2.0 * PI / 1.8).sin()
-    } else {
-        1.0
-    };
+    let breathe = if a.in_tune { 1.0 + 0.025 * (a.time * 2.0 * PI / 1.8).sin() } else { 1.0 };
     let base = w.min(h).min(MAX_BLOB_PX) / 2.0 * 0.96;
     let r = base * breathe;
     // Triangle-wave sway rather than a sine: reaches the extremes with a touch more character.
@@ -545,4 +542,3 @@ pub fn draw_chevrons(cr: &Context, w: f64, h: f64, point_up: bool, appear: f32, 
         chevron(ink_w, p.accent, alpha);
     }
 }
-

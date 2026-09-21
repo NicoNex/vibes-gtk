@@ -25,14 +25,12 @@ impl Engine {
 }
 
 /// Opens the default input device and reports the fundamental in Hz (or -1.0) from a worker
-/// thread, once per detection window.
+/// thread, once per detection window. The error is display text: its only consumer is the
+/// status page shown when there is no usable microphone.
 pub fn start(on_freq: impl Fn(f32) + Send + 'static) -> Result<Engine, String> {
-    let device = cpal::default_host()
-        .default_input_device()
-        .ok_or("no microphone found")?;
-    let supported = device
-        .default_input_config()
-        .map_err(|e| format!("no usable microphone config: {e}"))?;
+    let device = cpal::default_host().default_input_device().ok_or("no microphone found")?;
+    let supported =
+        device.default_input_config().map_err(|e| format!("no usable microphone config: {e}"))?;
     let sample_rate = supported.sample_rate() as usize;
     let channels = supported.channels() as usize;
     let stream_config: cpal::StreamConfig = supported.config();
@@ -78,11 +76,10 @@ pub fn start(on_freq: impl Fn(f32) + Send + 'static) -> Result<Engine, String> {
         while let Ok(chunk) = rx.recv() {
             buf.extend_from_slice(&chunk);
             while buf.len() >= WINDOW {
-                let p = yin_pitch(&buf[..WINDOW], sample_rate, 0.15);
+                let heard = yin_pitch(&buf[..WINDOW], sample_rate, 0.15);
                 buf.drain(..WINDOW);
-                if p > 0.0 {
+                if let Some(mut pc) = heard {
                     silent = 0;
-                    let mut pc = p;
                     if let Some(med) = median(&history) {
                         // Fold obvious octave slips toward the running estimate.
                         if (pc - 2.0 * med).abs() < 0.04 * 2.0 * med {
@@ -120,9 +117,7 @@ fn mono(data: &[f32], channels: usize) -> Vec<f32> {
     if channels <= 1 {
         return data.to_vec();
     }
-    data.chunks(channels)
-        .map(|f| f.iter().sum::<f32>() / f.len() as f32)
-        .collect()
+    data.chunks(channels).map(|f| f.iter().sum::<f32>() / f.len() as f32).collect()
 }
 
 fn median(values: &[f32]) -> Option<f32> {

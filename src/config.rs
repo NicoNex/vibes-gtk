@@ -68,10 +68,7 @@ impl Config {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let body = format!(
-            "a4={}\nsustain={}\nsolfege={}\n",
-            self.a4, self.sustain, self.solfege
-        );
+        let body = format!("a4={}\nsustain={}\nsolfege={}\n", self.a4, self.sustain, self.solfege);
         if let Err(e) = std::fs::write(&p, body) {
             eprintln!("could not save settings to {}: {e}", p.display());
         }

@@ -2,6 +2,10 @@
 //! Writes light/dark PNGs so the wave field, the blob and the chevrons can be eyeballed
 //! without launching the app. Dev tool only; it ships in no binary.
 
+// The crate is a binary, so there is no library for an example to import: paint.rs is compiled
+// a second time here instead. Leave the cairo-rs dev-dependency in Cargo.toml alone while you
+// are at it — nothing here names it, but it is what turns on the `png` feature that
+// `write_to_png` below needs. It must stay pinned to the same version gtk4 uses.
 #[path = "../src/paint.rs"]
 mod paint;
 
@@ -22,8 +26,8 @@ fn scene(name: &str, dark: bool, freq: f32, cents: f32) {
         anim.step(1.0 / 60.0);
     }
 
-    let surface = ImageSurface::create(Format::ARgb32, W, H).unwrap();
-    let cr = Context::new(&surface).unwrap();
+    let surface = ImageSurface::create(Format::ARgb32, W, H).expect("cairo surface");
+    let cr = Context::new(&surface).expect("cairo context");
     paint::draw_waves(&cr, W as f64, H as f64, &anim);
 
     let (w, h) = (W as f64, H as f64);
@@ -33,24 +37,22 @@ fn scene(name: &str, dark: bool, freq: f32, cents: f32) {
     section(&cr, 0.0, top + 44.0, w, |cr| {
         paint::draw_chevrons(cr, 300.0, 76.0, true, anim.up, &anim)
     });
-    section(&cr, (w - blob) / 2.0, top + 120.0, blob, |cr| {
-        paint::draw_blob(cr, blob, blob, &anim)
-    });
+    section(&cr, (w - blob) / 2.0, top + 120.0, blob, |cr| paint::draw_blob(cr, blob, blob, &anim));
     section(&cr, 0.0, top + 120.0 + blob, w, |cr| {
         paint::draw_chevrons(cr, 300.0, 76.0, false, anim.down, &anim)
     });
 
-    let mut out = std::fs::File::create(format!("/tmp/vibes-{name}.png")).unwrap();
-    surface.write_to_png(&mut out).unwrap();
+    let mut out = std::fs::File::create(format!("/tmp/vibes-{name}.png")).expect("open png");
+    surface.write_to_png(&mut out).expect("write png");
     println!("wrote /tmp/vibes-{name}.png");
 }
 
 fn section(cr: &Context, x: f64, y: f64, w: f64, draw: impl FnOnce(&Context)) {
-    cr.save().unwrap();
+    cr.save().expect("cairo save");
     // Chevrons are drawn centred in their own 300-wide box, so centre that box in the window.
     cr.translate(if w > 300.0 { x + (w - 300.0) / 2.0 } else { x }, y);
     draw(cr);
-    cr.restore().unwrap();
+    cr.restore().expect("cairo restore");
 }
 
 fn main() {

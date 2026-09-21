@@ -28,9 +28,7 @@ const IN_TUNE_CENTS: f32 = 5.0;
 /// A Pango attribute list holding one absolute font size, in device pixels.
 fn absolute_size(px: f64) -> pango::AttrList {
     let attrs = pango::AttrList::new();
-    attrs.insert(pango::AttrSize::new_size_absolute(
-        (px * pango::SCALE as f64) as i32,
-    ));
+    attrs.insert(pango::AttrSize::new_size_absolute((px * pango::SCALE as f64) as i32));
     attrs
 }
 
@@ -74,21 +72,27 @@ impl App {
 
     fn state_color(&self) -> Rgb {
         let p = self.anim.borrow().palette;
-        match () {
-            _ if self.freq <= 0.0 => p.muted,
-            _ if self.in_tune() => p.accent,
-            _ if self.cents() > 0.0 => p.warning,
-            _ => p.error,
+        if self.freq <= 0.0 {
+            p.muted
+        } else if self.in_tune() {
+            p.accent
+        } else if self.cents() > 0.0 {
+            p.warning
+        } else {
+            p.error
         }
     }
 
     /// The status pill: what it says, and the CSS class that colours it.
     fn chip(&self) -> (&'static str, &'static str) {
-        match () {
-            _ if self.freq <= 0.0 => ("LISTENING", "idle"),
-            _ if self.in_tune() => ("IN TUNE", "tune"),
-            _ if self.cents() > 0.0 => ("SHARP  ↓", "sharp"), // too high → tune down
-            _ => ("FLAT  ↑", "flat"),                         // too low  → tune up
+        if self.freq <= 0.0 {
+            ("LISTENING", "idle")
+        } else if self.in_tune() {
+            ("IN TUNE", "tune")
+        } else if self.cents() > 0.0 {
+            ("SHARP  ↓", "sharp") // too high → tune down
+        } else {
+            ("FLAT  ↑", "flat") // too low → tune up
         }
     }
 
@@ -149,9 +153,7 @@ impl App {
 
     /// Push the current reading into the animation state the drawing areas read every frame.
     fn sync_anim(&self) {
-        self.anim
-            .borrow_mut()
-            .set_pitch(self.freq, self.cents(), self.in_tune());
+        self.anim.borrow_mut().set_pitch(self.freq, self.cents(), self.in_tune());
     }
 }
 
@@ -419,9 +421,8 @@ impl SimpleComponent for App {
     ) -> ComponentParts<Self> {
         let cfg = Config::load();
 
-        let settings = Settings::builder()
-            .launch(cfg)
-            .forward(sender.input_sender(), Msg::CfgChanged);
+        let settings =
+            Settings::builder().launch(cfg).forward(sender.input_sender(), Msg::CfgChanged);
 
         // VIBES_DEMO_HZ pins the reading to a fixed frequency and leaves the microphone shut.
         // It exists so the documentation screenshots can be taken without an instrument, and

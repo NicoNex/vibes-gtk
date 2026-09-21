@@ -172,7 +172,8 @@ impl SimpleComponent for Settings {
             SettingsMsg::Sustain(v) => {
                 // Magnetic detent on the default — the slider pulls into 1.2 s as you pass it.
                 let raw = v as f32;
-                let snapped = if (raw - SUSTAIN_DEFAULT).abs() < 0.06 { SUSTAIN_DEFAULT } else { raw };
+                let snapped =
+                    if (raw - SUSTAIN_DEFAULT).abs() < 0.06 { SUSTAIN_DEFAULT } else { raw };
                 self.cfg.sustain = snapped.clamp(SUSTAIN_RANGE.0, SUSTAIN_RANGE.1);
             }
             SettingsMsg::Solfege(v) => self.cfg.solfege = v,

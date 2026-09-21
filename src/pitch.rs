@@ -1,12 +1,10 @@
 //! Pure pitch DSP + note math. No GTK here, so it runs under plain `cargo test`.
 
 /// Chromatic pitch classes, index 0 = C. Two naming conventions.
-pub const NOTE_NAMES_LETTER: [&str; 12] = [
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-];
-pub const NOTE_NAMES_SOLFEGE: [&str; 12] = [
-    "Do", "Do#", "Re", "Re#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si",
-];
+pub const NOTE_NAMES_LETTER: [&str; 12] =
+    ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+pub const NOTE_NAMES_SOLFEGE: [&str; 12] =
+    ["Do", "Do#", "Re", "Re#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si"];
 
 pub struct NoteInfo {
     pub pitch_class: usize,
@@ -29,35 +27,33 @@ pub fn note_info(freq: f32, a4: f32) -> NoteInfo {
     }
 }
 
-/// YIN pitch detector. Returns the fundamental in Hz, or -1.0 if no confident pitch.
+/// YIN pitch detector. Returns the fundamental in Hz, or `None` if no confident pitch.
 /// Reference: de Cheveigné & Kawahara (2002).
 /// ponytail: O(N^2) difference function — fine for N <= 4096 off the audio thread; swap to an
 /// FFT autocorrelation only if a profiler shows it hot.
-pub fn yin_pitch(samples: &[f32], sample_rate: usize, threshold: f32) -> f32 {
+pub fn yin_pitch(samples: &[f32], sample_rate: usize, threshold: f32) -> Option<f32> {
     let tau_max = samples.len() / 2;
     if tau_max < 2 {
-        return -1.0;
+        return None;
     }
 
     // Remove DC offset (mic bias / low rumble) so quiet signals aren't swamped.
-    let mean = samples.iter().map(|s| *s as f64).sum::<f64>() / samples.len() as f64;
-    let x: Vec<f32> = samples.iter().map(|s| s - mean as f32).collect();
+    let mean = (samples.iter().map(|s| *s as f64).sum::<f64>() / samples.len() as f64) as f32;
+    let x: Vec<f32> = samples.iter().map(|s| s - mean).collect();
 
     // Low gate: only skip true near-silence. YIN's clarity check (threshold below) rejects
     // broadband noise regardless of level, so a low gate keeps quiet notes usable.
     let energy: f64 = x.iter().map(|v| (*v as f64) * (*v as f64)).sum();
     if (energy / x.len() as f64) < 1e-7 {
-        return -1.0;
+        return None;
     }
 
     let mut diff = vec![0f32; tau_max];
     for tau in 1..tau_max {
-        let mut sum = 0f32;
-        for i in 0..tau_max {
-            let d = x[i] - x[i + tau];
-            sum += d * d;
-        }
-        diff[tau] = sum;
+        // Zipped rather than indexed: same arithmetic, without a bounds check per sample in the
+        // one loop that runs tau_max^2 times.
+        diff[tau] =
+            x[..tau_max].iter().zip(&x[tau..tau + tau_max]).map(|(a, b)| (a - b) * (a - b)).sum();
     }
 
     // Cumulative mean normalized difference.
@@ -65,11 +61,7 @@ pub fn yin_pitch(samples: &[f32], sample_rate: usize, threshold: f32) -> f32 {
     let mut running = 0f32;
     for tau in 1..tau_max {
         running += diff[tau];
-        cmnd[tau] = if running == 0.0 {
-            1.0
-        } else {
-            diff[tau] * tau as f32 / running
-        };
+        cmnd[tau] = if running == 0.0 { 1.0 } else { diff[tau] * tau as f32 / running };
     }
 
     // First tau below the threshold that is a local minimum.
@@ -85,29 +77,15 @@ pub fn yin_pitch(samples: &[f32], sample_rate: usize, threshold: f32) -> f32 {
         }
         tau += 1;
     }
-    let t = match tau_estimate {
-        Some(t) => t,
-        None => return -1.0,
-    };
+    let t = tau_estimate?;
 
-    // Parabolic interpolation around the minimum for sub-sample accuracy.
-    let x0 = if t < 1 { t } else { t - 1 };
-    let x2 = if t + 1 < tau_max { t + 1 } else { t };
-    let better_tau: f32 = if x0 == t {
-        if cmnd[t] <= cmnd[x2] { t as f32 } else { x2 as f32 }
-    } else if x2 == t {
-        if cmnd[t] <= cmnd[x0] { t as f32 } else { x0 as f32 }
-    } else {
-        let (s0, s1, s2) = (cmnd[x0], cmnd[t], cmnd[x2]);
-        let denom = 2.0 * (2.0 * s1 - s2 - s0);
-        if denom == 0.0 { t as f32 } else { t as f32 + (s2 - s0) / denom }
-    };
+    // Parabolic interpolation around the minimum for sub-sample accuracy. The search above
+    // starts at 2 and stops before tau_max - 1, so both neighbours always exist.
+    let (s0, s1, s2) = (cmnd[t - 1], cmnd[t], cmnd[t + 1]);
+    let denom = 2.0 * (2.0 * s1 - s2 - s0);
+    let better_tau = if denom == 0.0 { t as f32 } else { t as f32 + (s2 - s0) / denom };
 
-    if better_tau <= 0.0 {
-        -1.0
-    } else {
-        sample_rate as f32 / better_tau
-    }
+    (better_tau > 0.0).then(|| sample_rate as f32 / better_tau)
 }
 
 #[cfg(test)]
@@ -116,9 +94,7 @@ mod tests {
     use std::f64::consts::PI;
 
     fn sine(freq: f64, sample_rate: usize, n: usize) -> Vec<f32> {
-        (0..n)
-            .map(|i| (2.0 * PI * freq * i as f64 / sample_rate as f64).sin() as f32)
-            .collect()
+        (0..n).map(|i| (2.0 * PI * freq * i as f64 / sample_rate as f64).sin() as f32).collect()
     }
 
     #[test]
@@ -149,19 +125,21 @@ mod tests {
     #[test]
     fn yin_detects_440() {
         let sr = 44100;
-        let f = yin_pitch(&sine(440.0, sr, 4096), sr, 0.15);
+        let f = yin_pitch(&sine(440.0, sr, 4096), sr, 0.15).expect("440 Hz sine");
         assert!((f - 440.0).abs() < 2.0, "got {f}");
     }
 
     #[test]
     fn yin_detects_low_e82() {
         let sr = 44100;
-        let f = yin_pitch(&sine(82.41, sr, 4096), sr, 0.15); // low E, guitar 6th string
+        // low E, guitar 6th string
+        let f = yin_pitch(&sine(82.41, sr, 4096), sr, 0.15).expect("82.41 Hz sine");
         assert!((f - 82.41).abs() < 2.0, "got {f}");
     }
 
     #[test]
-    fn yin_returns_negative_on_silence() {
-        assert!(yin_pitch(&vec![0f32; 4096], 44100, 0.15) < 0.0);
+    fn yin_hears_nothing_in_silence() {
+        assert_eq!(yin_pitch(&vec![0f32; 4096], 44100, 0.15), None);
+        assert_eq!(yin_pitch(&[], 44100, 0.15), None);
     }
 }
