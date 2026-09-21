@@ -1,0 +1,67 @@
+/* Everything here leans on libadwaita's named colours, so the app follows the user's accent
+   and light/dark preference with no runtime CSS regeneration. */
+
+/* The status pill: LISTENING / IN TUNE / SHARP / FLAT. */
+.chip {
+  border-radius: 999px;
+  padding: 9px 22px;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.09em;
+  transition: background-color 260ms ease, color 260ms ease;
+}
+.chip.idle  { background: alpha(@window_fg_color, 0.12); color: @window_fg_color; }
+.chip.tune  { background: @accent_bg_color;  color: @accent_fg_color; }
+.chip.sharp { background: @warning_bg_color; color: @warning_fg_color; }
+.chip.flat  { background: @error_bg_color;   color: @error_fg_color; }
+
+/* Hz + cents readout — a tonal pill so it stays legible over the coloured bands. */
+.readout {
+  background: @card_bg_color;
+  color: @window_fg_color;
+  border-radius: 999px;
+  padding: 8px 20px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+/* The note letter inside the blob. Serif display, the editorial heart of the app. */
+.note {
+  font-family: serif;
+  font-weight: 700;
+  transition: color 260ms ease;
+}
+.note.len-1 { font-size: 132px; }
+.note.len-3 { font-size: 104px; }
+.note.len-4 { font-size: 82px; }
+
+.octave {
+  font-family: serif;
+  opacity: 0.7;
+  transition: color 260ms ease;
+}
+.octave.len-1 { font-size: 42px; }
+.octave.len-3 { font-size: 33px; }
+.octave.len-4 { font-size: 26px; }
+
+.on-dark  { color: #ffffff; }
+.on-light { color: rgba(0, 0, 0, 0.87); }
+
+/* The headerbar floats over the wave field, so it must not paint a background of its own. */
+.vibes-header { background: none; box-shadow: none; }
+
+/* Settings: the big editorial value above each slider. */
+.bignum {
+  font-size: 32px;
+  font-weight: 300;
+  color: @accent_color;
+}
+.badge {
+  background: @accent_bg_color;
+  color: @accent_fg_color;
+  border-radius: 999px;
+  padding: 3px 11px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}

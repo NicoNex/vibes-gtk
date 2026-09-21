@@ -1,0 +1,22 @@
+[package]
+name = "vibes"
+version = "0.1.0"
+edition = "2021"
+description = "A chromatic instrument tuner — GTK4 / libadwaita port of Vibes"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+relm4 = { version = "0.11", features = ["libadwaita"] }
+# Listed explicitly only to turn on the version features: AdwToggleGroup (1.7), AdwSpinner and
+# StyleManager::accent-color (1.6). relm4 re-exports these very crates, so there is one copy.
+gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_7"] }
+cpal = "0.18"
+
+[profile.release]
+lto = true
+strip = true
+
+[dev-dependencies]
+# Only so the offscreen preview example can write PNGs; not in the shipped binary.
+cairo-rs = { version = "0.22", features = ["png"] }
