@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Vibes
+GenericName=Instrument Tuner
+Comment=A chromatic tuner that hears any note
+Exec=vibes
+Icon=com.niconex.Vibes
+Terminal=false
+Type=Application
+Categories=GTK;Audio;AudioVideo;Music;
+Keywords=tuner;tuning;pitch;guitar;chromatic;instrument;
+StartupNotify=true

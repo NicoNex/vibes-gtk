@@ -40,6 +40,14 @@ Needs GTK 4 and libadwaita 1.7+ development packages.
 cargo run --release
 ```
 
+To have the shell show the icon and the app in its launcher:
+
+```bash
+install -Dm644 data/com.niconex.Vibes.desktop ~/.local/share/applications/com.niconex.Vibes.desktop
+install -Dm644 data/icons/com.niconex.Vibes.svg ~/.local/share/icons/hicolor/scalable/apps/com.niconex.Vibes.svg
+install -Dm644 data/icons/com.niconex.Vibes-symbolic.svg ~/.local/share/icons/hicolor/symbolic/apps/com.niconex.Vibes-symbolic.svg
+```
+
 ```bash
 cargo test                      # the pitch DSP and note math
 cargo run --example render      # offscreen PNGs of the painted layer, into /tmp
@@ -55,6 +63,7 @@ cargo run --example render      # offscreen PNGs of the painted layer, into /tmp
 | `src/main.rs` | The tuner window |
 | `src/settings.rs` | The settings window |
 | `src/style.css` | Chip, readout and note typography, on libadwaita named colours |
+| `data/icons/` | The app icon on the GNOME HIG canvas, plus its symbolic variant |
 
 ## License
 
