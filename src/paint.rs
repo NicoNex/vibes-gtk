@@ -181,6 +181,12 @@ pub struct Anim {
     pub wobble_period: f32,
     pub wobble_phase: f32,
 
+    /// The note's own frequency, octave-shifted down into a range the eye can follow.
+    pub vib_hz: f32,
+    pub vib_phase: f32,
+    pub vib_amp_target: f32,
+    pub vib_amp: f32,
+
     pub up_target: f32,
     pub up: f32,
     pub down_target: f32,
@@ -208,6 +214,10 @@ impl Anim {
             wobble_amp: 3.0,
             wobble_period: 2.8,
             wobble_phase: 0.0,
+            vib_hz: 6.0,
+            vib_phase: 0.0,
+            vib_amp_target: 0.0,
+            vib_amp: 0.0,
             up_target: 0.0,
             up: 0.0,
             down_target: 0.0,
@@ -243,6 +253,25 @@ impl Anim {
         };
         self.wobble_amp_target = amp;
         self.wobble_period = period;
+        // The blob vibrates at the note itself, dropped by whole octaves until it lands in a
+        // range the eye can follow. A4 = 440 Hz → 6.9 Hz; the low E of a guitar → 5.2 Hz. Same
+        // note, same shimmer, every time.
+        if has_pitch {
+            let mut hz = freq;
+            while hz >= 8.0 {
+                hz *= 0.5;
+            }
+            while hz < 4.0 {
+                hz *= 2.0;
+            }
+            self.vib_hz = hz;
+        }
+        // It rings hard while the note is off, and calms to a shimmer once locked.
+        self.vib_amp_target = match () {
+            _ if !has_pitch => 0.0,
+            _ if in_tune => 0.016,
+            _ => 0.020 + 0.030 * (cents.abs() / 50.0).min(1.0),
+        };
         self.up_target = if has_pitch && !in_tune && cents < 0.0 { 1.0 } else { 0.0 };
         self.down_target = if has_pitch && !in_tune && cents > 0.0 { 1.0 } else { 0.0 };
     }
@@ -268,6 +297,8 @@ impl Anim {
         self.scroll = (self.scroll + self.speed * dt32).rem_euclid(1.0);
         self.wobble_phase =
             (self.wobble_phase + dt32 / self.wobble_period).rem_euclid(1.0);
+        self.vib_amp = approach(self.vib_amp, self.vib_amp_target, 0.20, dt32);
+        self.vib_phase = (self.vib_phase + self.vib_hz * dt32).rem_euclid(1.0);
     }
 }
 
@@ -295,7 +326,7 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
     let thickness = spacing * 0.62;
     let kx = 1.5 * 2.0 * PI;
     let ripple = a.time * (2.0 * PI / 3.2); // one full traverse every 3.2 s
-    let step = (w / 96.0).max(2.0);
+    let step = (w / 320.0).max(1.0);
     let count = (h / spacing) as i32;
 
     cr.set_line_width(thickness);
@@ -343,22 +374,31 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
 // ---------------------------------------------------------------------------------------------
 
 /// A 12-lobed scalloped cookie, the answer to `MaterialShapes.Cookie12Sided`.
-/// Built as the union of a disc and twelve overlapping circles rather than a polar ripple: the
-/// lobes come out as true round bumps with round valleys between them, which is what makes the
-/// shape read as a sticker instead of a sunburst.
-fn cookie_path(cr: &Context, cx: f64, cy: f64, r: f64, rotation: f64) {
-    const LOBES: usize = 12;
-    let bump = r * 0.23;
-    let ring = r - bump; // where the lobe centres sit
-    let core = r * 0.90; // the valley radius between two lobes
-    cr.set_fill_rule(FillRule::Winding);
-    cr.new_sub_path();
-    cr.arc(cx, cy, core, 0.0, 2.0 * PI);
-    for i in 0..LOBES {
-        let t = rotation + i as f64 / LOBES as f64 * 2.0 * PI;
-        cr.new_sub_path();
-        cr.arc(cx + ring * t.cos(), cy + ring * t.sin(), bump, 0.0, 2.0 * PI);
+///
+/// One polar radius, sampled finely. Unioning circles gave true round lobes but joined them to
+/// the body at a corner, which read as lumpy; a single smooth radius has no joins to go wrong.
+///
+/// `vib` rings the shape at the note it hears: the twelve lobes pump in and out and the whole
+/// sticker pulses with them, in step. Kept radially symmetric on purpose — a travelling mode
+/// around the rim just made the silhouette look lopsided.
+fn cookie_path(cr: &Context, cx: f64, cy: f64, r: f64, rotation: f64, vib: f64, vib_phase: f64) {
+    const LOBES: f64 = 12.0;
+    const SCALLOP: f64 = 0.038;
+    const SAMPLES: usize = 720;
+    let osc = (2.0 * PI * vib_phase).sin();
+    let scallop = SCALLOP * (1.0 + 3.2 * vib * osc);
+    let scale = r * (1.0 + 0.5 * vib * osc);
+    for i in 0..=SAMPLES {
+        let t = i as f64 / SAMPLES as f64 * 2.0 * PI;
+        let rr = scale * (1.0 - scallop + scallop * (LOBES * (t + rotation)).cos());
+        let (x, y) = (cx + rr * t.cos(), cy + rr * t.sin());
+        if i == 0 {
+            cr.move_to(x, y);
+        } else {
+            cr.line_to(x, y);
+        }
     }
+    cr.close_path();
 }
 
 pub fn draw_blob(cr: &Context, w: f64, h: f64, a: &Anim) {
@@ -369,7 +409,9 @@ pub fn draw_blob(cr: &Context, w: f64, h: f64, a: &Anim) {
     } else {
         1.0
     };
-    let base = w.min(h) / 2.0 * 0.96;
+    // Fills whatever box it is given, up to a ceiling — so it scales down to a phone and stops
+    // growing into a dinner plate on a maximised desktop window.
+    let base = w.min(h).min(330.0) / 2.0 * 0.96;
     let r = base * breathe;
     // Triangle-wave sway rather than a sine: reaches the extremes with a touch more character.
     let osc = ((a.wobble_phase as f64 * 2.0 * PI).sin()) * a.wobble_amp as f64;
@@ -378,7 +420,7 @@ pub fn draw_blob(cr: &Context, w: f64, h: f64, a: &Anim) {
     // ponytail: no drop shadow. The look is flat saturated colour on flat colour, and a fake
     // blur (stacked fading outlines — cairo has no cheap gaussian) muddied the edge.
     set(cr, a.blob);
-    cookie_path(cr, cx, cy, r, rotation);
+    cookie_path(cr, cx, cy, r, rotation, a.vib_amp as f64, a.vib_phase as f64);
     let _ = cr.fill();
 }
 
@@ -393,10 +435,15 @@ pub fn draw_chevrons(cr: &Context, w: f64, h: f64, point_up: bool, appear: f32, 
     }
     let p = &a.palette;
     let cx = w / 2.0;
-    let cw = w.min(h) * 0.34;
-    let ch = cw * 0.55;
+    // Three chevrons plus their gaps come to 4.6 chevron-heights, so size from the space given
+    // and never overflow it — that is what keeps the row honest from a phone to a wide window.
+    let ch = (h / 4.6).min(22.0);
+    let cw = (ch / 0.55).min(w * 0.22);
     let gap = ch * 1.8;
-    let top = (h - gap * 2.0) / 2.0;
+    let top = (h - (gap * 2.0 + ch)) / 2.0;
+    // Stroke weights ride on the chevron height. Fixed widths merged the three into one smear
+    // as soon as the row got short.
+    let (halo_w, ink_w) = (ch * 0.80, ch * 0.46);
     let phase = (a.time / 1.1).rem_euclid(1.0) * 3.0;
 
     cr.set_line_cap(LineCap::Round);
@@ -419,7 +466,7 @@ pub fn draw_chevrons(cr: &Context, w: f64, h: f64, point_up: bool, appear: f32, 
             let _ = cr.stroke();
         };
         // A neutral halo first so the arrows read against any wave-band colour.
-        chevron(17.0, p.bg, alpha * 0.75);
-        chevron(9.5, p.accent, alpha);
+        chevron(halo_w, p.bg, alpha * 0.75);
+        chevron(ink_w, p.accent, alpha);
     }
 }

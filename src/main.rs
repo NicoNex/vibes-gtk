@@ -14,6 +14,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use adw::prelude::*;
+use relm4::gtk::pango;
 use relm4::prelude::*;
 use relm4::{adw, gtk};
 
@@ -24,6 +25,15 @@ use settings::Settings;
 
 const IN_TUNE_CENTS: f32 = 5.0;
 
+/// A Pango attribute list holding one absolute font size, in device pixels.
+fn absolute_size(px: f64) -> pango::AttrList {
+    let attrs = pango::AttrList::new();
+    attrs.insert(pango::AttrSize::new_size_absolute(
+        (px * pango::SCALE as f64) as i32,
+    ));
+    attrs
+}
+
 struct App {
     cfg: Config,
     freq: f32,
@@ -32,6 +42,8 @@ struct App {
     engine: Option<audio::Engine>,
     settings: Controller<Settings>,
     window: adw::ApplicationWindow,
+    /// The blob's current on-screen diameter, which the note typography is sized from.
+    blob_px: f64,
 }
 
 #[derive(Debug)]
@@ -40,6 +52,7 @@ enum Msg {
     OpenSettings,
     CfgChanged(Config),
     ThemeChanged,
+    BlobResized(f64),
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -106,26 +119,33 @@ impl App {
         }
     }
 
-    /// Longer names (solfège sharps like "Sol#") shrink so they stay inside the blob.
-    fn len_class(&self) -> &'static str {
-        match self.note_text().chars().count() {
-            0..=2 => "len-1",
-            3 => "len-3",
-            _ => "len-4",
-        }
-    }
-
     fn note_classes(&self, base: &'static str) -> Vec<&'static str> {
         let ink = if self.state_color().wants_light_text() { "on-dark" } else { "on-light" };
-        vec![base, self.len_class(), ink]
+        vec![base, ink]
+    }
+
+    /// The note is sized from the blob it sits in, not from a fixed stack of CSS sizes: that is
+    /// what lets the same layout hold on a phone. Longer names (solfège sharps like "Sol#")
+    /// take a smaller share so they stay inside the scallops.
+    fn note_px(&self) -> f64 {
+        let share = match self.note_text().chars().count() {
+            0..=2 => 0.46,
+            3 => 0.36,
+            _ => 0.28,
+        };
+        self.blob_px * share
+    }
+
+    fn note_attrs(&self) -> pango::AttrList {
+        absolute_size(self.note_px())
+    }
+
+    fn octave_attrs(&self) -> pango::AttrList {
+        absolute_size(self.note_px() * 0.32)
     }
 
     fn octave_margin(&self) -> i32 {
-        match self.len_class() {
-            "len-1" => 24,
-            "len-3" => 19,
-            _ => 15,
-        }
+        (self.note_px() * 0.18) as i32
     }
 
     fn readout(&self) -> String {
@@ -159,6 +179,9 @@ impl SimpleComponent for App {
             set_title: Some("Vibes"),
             set_default_width: 460,
             set_default_height: 880,
+            // GNOME Mobile's floor is 360×294. Everything below sizes itself from the space it
+            // is given, so the same layout holds from a phone to a maximised desktop window.
+            set_size_request: (360, 294),
 
             #[wrap(Some)]
             set_content = &adw::ToolbarView {
@@ -189,8 +212,9 @@ impl SimpleComponent for App {
 
                     add_overlay = &gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
-                        set_valign: gtk::Align::Center,
-                        set_halign: gtk::Align::Center,
+                        set_margin_start: 12,
+                        set_margin_end: 12,
+                        set_margin_bottom: 12,
                         #[watch]
                         set_visible: model.error.is_none(),
 
@@ -205,16 +229,17 @@ impl SimpleComponent for App {
                         // Arrows above the note point UP when the pitch is flat (raise it).
                         #[name = "arrows_up"]
                         gtk::DrawingArea {
-                            set_content_width: 300,
-                            set_content_height: 76,
+                            set_size_request: (-1, 30),
+                            set_vexpand: true,
                         },
 
                         gtk::Overlay {
+                            set_vexpand: true,
+
                             #[wrap(Some)]
                             #[name = "blob"]
                             set_child = &gtk::DrawingArea {
-                                set_content_width: 312,
-                                set_content_height: 312,
+                                set_size_request: (120, 120),
                             },
 
                             add_overlay = &gtk::Box {
@@ -227,6 +252,8 @@ impl SimpleComponent for App {
                                     set_label: &model.note_text(),
                                     #[watch]
                                     set_css_classes: &model.note_classes("note"),
+                                    #[watch]
+                                    set_attributes: Some(&model.note_attrs()),
                                 },
                                 gtk::Label {
                                     set_valign: gtk::Align::Start,
@@ -234,6 +261,8 @@ impl SimpleComponent for App {
                                     set_label: &model.octave_text(),
                                     #[watch]
                                     set_css_classes: &model.note_classes("octave"),
+                                    #[watch]
+                                    set_attributes: Some(&model.octave_attrs()),
                                     #[watch]
                                     set_margin_top: model.octave_margin(),
                                 },
@@ -243,8 +272,8 @@ impl SimpleComponent for App {
                         // Arrows below point DOWN when sharp (lower it).
                         #[name = "arrows_down"]
                         gtk::DrawingArea {
-                            set_content_width: 300,
-                            set_content_height: 76,
+                            set_size_request: (-1, 30),
+                            set_vexpand: true,
                         },
 
                         gtk::Box {
@@ -320,6 +349,7 @@ impl SimpleComponent for App {
             engine,
             settings,
             window: root.clone(),
+            blob_px: 300.0,
         };
 
         let widgets = view_output!();
@@ -349,6 +379,15 @@ impl SimpleComponent for App {
             widgets.arrows_down.set_draw_func(move |_, cr, w, h| {
                 let an = a.borrow();
                 paint::draw_chevrons(cr, w as f64, h as f64, false, an.down, &an);
+            });
+        }
+
+        // The note typography follows the blob's real size, so it fits on a phone and grows on
+        // a desktop without a table of breakpoints.
+        {
+            let s = sender.input_sender().clone();
+            widgets.blob.connect_resize(move |_, w, h| {
+                let _ = s.send(Msg::BlobResized((w.min(h) as f64).min(330.0)));
             });
         }
 
@@ -408,6 +447,7 @@ impl SimpleComponent for App {
                     engine.set_hold_seconds(cfg.sustain);
                 }
             }
+            Msg::BlobResized(px) => self.blob_px = px,
             Msg::ThemeChanged => {
                 let palette = Palette::current();
                 let mut anim = self.anim.borrow_mut();

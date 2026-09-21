@@ -13,6 +13,11 @@ Built with **relm4** on gtk4-rs + libadwaita.
 - **Glanceable feedback** — the note in a big serif inside a 12-lobed scalloped blob, a status
   pill (IN TUNE / SHARP ↓ / FLAT ↑), marching chevrons, and a field of wavy bands that drifts
   **up when flat / down when sharp**, faster the further off you are and still once you lock in.
+- **The sticker rings at the note** — the blob's lobes pump at the detected frequency itself,
+  dropped by whole octaves into a range the eye can follow (A4 → 6.9 Hz). Hard while the note is
+  off, a shimmer once it locks.
+- **Adaptive** — one layout from 360×294 (GNOME Mobile's floor) to a maximised desktop window:
+  the blob, the chevrons and the note's typography all size themselves from the space they get.
 - **Settings** — reference pitch (415–466 Hz), note names (`A B C` / `Do Re Mi`), and sustain
   (0.5–2.5 s, with a magnetic detent on the 1.2 s default).
 
