@@ -5,3 +5,6 @@
 /dist/arch/src
 /dist/arch/pkg
 /vibes-*.apk
+/dist/postmarketos/tmp
+/dist/postmarketos/src
+/dist/postmarketos/pkg

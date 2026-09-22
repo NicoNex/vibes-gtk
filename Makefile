@@ -90,9 +90,9 @@ postmarketos:
 		-v vibes-pmos-target:/target \
 		alpine:edge sh -c '\
 			apk add -q alpine-sdk && \
-			abuild-keygen -a -n -q && \
+			abuild-keygen -a -n -q && cp /root/.config/abuild/*.rsa.pub /etc/apk/keys/ && \
 			CARGO_TARGET_DIR=/target REPODEST=/tmp/repo abuild -F -r -q && \
-			cp /tmp/repo/*/*/vibes-*.apk /src/'
+			for f in /tmp/repo/*/*/vibes-*.apk; do cp "$$f" "/src/$$(basename "$$f" .apk)-$$(apk --print-arch).apk"; done'
 	@ls vibes-*.apk
 
 # ponytail: mkdir + cp rather than `install -D`, which BSD install does not have.
