@@ -535,10 +535,17 @@ impl SimpleComponent for App {
                 self.freq = freq;
                 // Only the lock-in is spoken: every reading would be ten announcements a second.
                 if self.in_tune() && !was_in_tune {
-                    let text = format!("{}{}, in tune", self.note_text(), self.octave_text());
-                    self.window
-                        .upcast_ref::<gtk::Widget>()
-                        .announce(&text, gtk::AccessibleAnnouncementPriority::Medium);
+                    // ponytail: GTK 4.24 has no accessibility backend on macOS, so
+                    // gtk_at_context_announce branches through a NULL class vfunc and the process
+                    // dies with SIGSEGV at PC 0. Announce where an AT backend exists; drop the
+                    // guard once GTK implements one for macOS.
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        let text = format!("{}{}, in tune", self.note_text(), self.octave_text());
+                        self.window
+                            .upcast_ref::<gtk::Widget>()
+                            .announce(&text, gtk::AccessibleAnnouncementPriority::Medium);
+                    }
                 }
             }
             Msg::OpenSettings => self.settings.widget().present(Some(&self.window)),
