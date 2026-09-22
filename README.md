@@ -100,6 +100,19 @@ with binfmt_misc (on Arch: `qemu-user-static qemu-user-static-binfmt`). Point it
 make linux-arm64 CROSS_PLATFORM=linux/amd64 CROSS_OUT=vibes-linux-amd64
 ```
 
+### Building for macOS
+
+```bash
+make macos      # leaves ./Vibes.app
+make dmg        # and packs it into ./vibes-<version>-macos.dmg
+```
+
+Needs `brew install gtk4 libadwaita` (which brings along the `rsvg-convert` the icon is rendered
+with). The bundle links that Homebrew GTK rather than carrying its own copies, so it runs on a Mac
+that has those formulae and not on a bare one; making it self-contained means running
+`dylibbundler` over `Contents/MacOS/vibes`. It is signed ad-hoc — unsigned arm64 bundles will not
+launch at all, and microphone permission is remembered per signing identity.
+
 ## How it works
 
 Vibes detects pitch with a **YIN autocorrelation detector** (de Cheveigné & Kawahara, 2002),
@@ -204,6 +217,7 @@ Working. Built and run against GTK 4.24 and libadwaita 1.10. On Arch Linux, `mak
 pacman package in the repository root (`sudo pacman -U vibes-*.pkg.tar.zst`); elsewhere
 `make install` is the supported route. For a phone on postmarketOS, `make postmarketos` builds an
 aarch64 `.apk` inside an Alpine container (`apk add --allow-untrusted vibes-*.apk` on the phone).
+On macOS, `make dmg` bundles a `Vibes.app` that needs Homebrew's GTK alongside it.
 There is no Flatpak yet.
 
 ## License

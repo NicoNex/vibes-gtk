@@ -12,10 +12,13 @@ PMOS_PLATFORM ?= linux/arm64
 # shrugs off, so the Alpine build asks a public resolver. Point it elsewhere if you prefer.
 PMOS_DNS ?= 1.1.1.1
 
+VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+DMG ?= vibes-$(VERSION)-macos.dmg
+
 # Honours CARGO_TARGET_DIR, so a container build installs its own binary, not the host's.
 BIN := $(or $(CARGO_TARGET_DIR),target)/release/vibes
 
-.PHONY: all run test check preview icons install uninstall clean linux-arm64 arch postmarketos
+.PHONY: all run test check preview icons install uninstall clean linux-arm64 arch postmarketos macos dmg
 
 # The binary, dropped in the repository root — same place the Android Makefile left its apk.
 all: vibes
@@ -95,6 +98,39 @@ postmarketos:
 			for f in /tmp/repo/*/*/vibes-*.apk; do cp "$$f" "/src/$$(basename "$$f" .apk)-$$(apk --print-arch).apk"; done'
 	@ls vibes-*.apk
 
+# An application bundle, Vibes.app, in the repository root. macOS only; build host needs
+# `brew install gtk4 libadwaita` (rsvg-convert, used for the icon, comes along with those).
+#
+# ponytail: the bundle links the Homebrew GTK it was built against instead of carrying copies of
+# it, so it runs on a machine that has those formulae and nowhere else. Run dylibbundler over
+# Contents/MacOS/vibes if it ever has to stand alone.
+macos: $(BIN) dist/macos/Info.plist data/icons/$(APP_ID).svg
+	rm -rf Vibes.app vibes.iconset
+	mkdir -p Vibes.app/Contents/MacOS Vibes.app/Contents/Resources vibes.iconset
+	cp $(BIN) Vibes.app/Contents/MacOS/vibes
+	sed 's/@VERSION@/$(VERSION)/g' dist/macos/Info.plist > Vibes.app/Contents/Info.plist
+	for s in 16 32 128 256 512; do \
+		rsvg-convert -w $$s -h $$s data/icons/$(APP_ID).svg -o vibes.iconset/icon_$${s}x$${s}.png; \
+		rsvg-convert -w $$((s * 2)) -h $$((s * 2)) data/icons/$(APP_ID).svg \
+			-o vibes.iconset/icon_$${s}x$${s}@2x.png; \
+	done
+	iconutil -c icns vibes.iconset -o Vibes.app/Contents/Resources/vibes.icns
+	rm -rf vibes.iconset
+# Ad-hoc signature: unsigned arm64 bundles will not launch, and the microphone permission is
+# remembered per signing identity, so an unsigned one re-asks after every rebuild.
+	codesign --force --sign - Vibes.app
+	@echo "-> Vibes.app"
+
+# A disk image of that bundle, with the usual drag-onto-Applications shortcut beside it.
+dmg: macos
+	rm -rf target/dmg
+	mkdir -p target/dmg
+	cp -R Vibes.app target/dmg/
+	ln -s /Applications target/dmg/Applications
+	hdiutil create -volname Vibes -srcfolder target/dmg -ov -format UDZO -quiet $(DMG)
+	rm -rf target/dmg
+	@echo "-> $(DMG)"
+
 # ponytail: mkdir + cp rather than `install -D`, which BSD install does not have.
 install: $(BIN)
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
@@ -121,5 +157,6 @@ uninstall:
 
 clean:
 	cargo clean
-	rm -f vibes vibes-linux-* vibes-*.pkg.tar.* vibes-*.apk
+	rm -f vibes vibes-linux-* vibes-*.pkg.tar.* vibes-*.apk vibes-*.dmg
+	rm -rf Vibes.app vibes.iconset
 	rm -rf dist/arch/src dist/arch/pkg

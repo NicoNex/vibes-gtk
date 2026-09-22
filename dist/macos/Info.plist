@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Vibes</string>
+	<key>CFBundleDisplayName</key>
+	<string>Vibes</string>
+	<key>CFBundleExecutable</key>
+	<string>vibes</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.niconex.Vibes</string>
+	<key>CFBundleIconFile</key>
+	<string>vibes</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!-- Without this key macOS kills the process the moment cpal opens the input device. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Vibes listens to your instrument to tell you which note it is playing.</string>
+</dict>
+</plist>
