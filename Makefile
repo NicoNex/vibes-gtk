@@ -18,7 +18,7 @@ DMG ?= vibes-$(VERSION)-macos.dmg
 # Honours CARGO_TARGET_DIR, so a container build installs its own binary, not the host's.
 BIN := $(or $(CARGO_TARGET_DIR),target)/release/vibes
 
-.PHONY: all run test check preview icons install uninstall clean linux-arm64 arch postmarketos macos dmg
+.PHONY: all run test check preview icons install uninstall clean linux-arm64 arch postmarketos macos dmg container-check
 
 # The binary, dropped in the repository root — same place the Android Makefile left its apk.
 all: vibes
@@ -46,6 +46,17 @@ preview:
 icons:
 	python3 data/icons/make-icons.py
 
+# Both container targets need more than a binary on PATH: on macOS podman runs the containers
+# inside a VM, and `podman machine start` is a separate step that survives no reboot, so the
+# plain `command -v` check passed while every build died with "unable to connect to Podman socket".
+container-check:
+	@test -n "$(CONTAINER)" || { \
+		echo "No docker or podman found. Either install one, or build on an ARM Linux machine with plain \`make\`."; \
+		exit 1; }
+	@$(CONTAINER) info >/dev/null 2>&1 || { \
+		echo "$(CONTAINER) is installed but not reachable. If it is podman on macOS: podman machine start"; \
+		exit 1; }
+
 # A binary for 64-bit ARM Linux — Raspberry Pi, PinePhone, Librem 5, ARM servers.
 #
 # GTK cannot be cross-linked from a foreign host without a full target sysroot: gtk4-sys asks
@@ -60,10 +71,7 @@ icons:
 #
 # The cargo registry and the target directory live in named volumes, so only the first build
 # pays for the downloads.
-linux-arm64:
-	@test -n "$(CONTAINER)" || { \
-		echo "No docker or podman found. Either install one, or build on an ARM Linux machine with plain \`make\`."; \
-		exit 1; }
+linux-arm64: container-check
 	$(CONTAINER) run --rm --platform $(CROSS_PLATFORM) \
 		-v "$(CURDIR)":/src -w /src \
 		-v vibes-cross-registry:/usr/local/cargo/registry \
@@ -85,8 +93,11 @@ arch:
 # alpine:edge container of the phone's architecture, so it links the same musl and libraries
 # pmOS ships. From an x86_64 host that needs the QEMU binfmt setup described for linux-arm64.
 # Signed with a throwaway key, so install it with: apk add --allow-untrusted vibes-*.apk
-postmarketos:
-	@test -n "$(CONTAINER)" || { echo "No docker or podman found."; exit 1; }
+#
+# Compiling gtk4 needs real memory: on a default `podman machine` (2 GiB, no swap) rustc is
+# SIGKILLed by the OOM killer partway through, which reads as a plain "could not compile gtk4".
+# Give the VM 8 GiB first: podman machine stop && podman machine set --memory 8192 && podman machine start
+postmarketos: container-check
 	$(CONTAINER) run --rm --platform $(PMOS_PLATFORM) --dns $(PMOS_DNS) \
 		-v "$(CURDIR)":/src -w /src/dist/postmarketos \
 		-v vibes-pmos-registry:/root/.cargo/registry \

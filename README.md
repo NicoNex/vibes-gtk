@@ -113,6 +113,20 @@ that has those formulae and not on a bare one; making it self-contained means ru
 `dylibbundler` over `Contents/MacOS/vibes`. It is signed ad-hoc — unsigned arm64 bundles will not
 launch at all, and microphone permission is remembered per signing identity.
 
+### Building the postmarketOS package on macOS
+
+`make postmarketos` and `make linux-arm64` run inside containers, and on macOS podman keeps those
+in a VM that needs starting once per boot (`podman machine start`) — the targets check for that
+now and say so rather than dying on a socket error. The VM also needs more memory than it gets by
+default: compiling `gtk4` inside a 2 GiB machine with no swap ends with rustc SIGKILLed by the OOM
+killer, reported only as `error: could not compile gtk4`. Once, before the first build:
+
+```bash
+podman machine stop
+podman machine set --memory 8192
+podman machine start
+```
+
 ## How it works
 
 Vibes detects pitch with a **YIN autocorrelation detector** (de Cheveigné & Kawahara, 2002),
