@@ -397,8 +397,10 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
     // spikes. The whole range is scaled down until the steepest flank stays under MAX_SLOPE.
     const HARMONIC: f64 = 0.10;
     const MAX_SWELL: f64 = 1.18;
-    const MAX_SLOPE: f64 = 0.8;
-    let kx = 1.5 * 2.0 * PI;
+    const MAX_SLOPE: f64 = 0.9;
+    // Humps across the window. More of them means a shorter wavelength, which MAX_SLOPE then
+    // answers with a lower swell, so the field gets busier without getting steeper.
+    let kx = 2.5 * 2.0 * PI;
     let full = h * 0.054;
     let cap = MAX_SLOPE / (kx / w * (1.0 + 2.0 * HARMONIC) * MAX_SWELL);
     let amp = full.min(cap) * (0.014 + 0.04 * a.energy as f64) / 0.054;
@@ -429,7 +431,7 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
         // Filled between the centre line shifted up and down, not stroked: a stroke this thick
         // offsets along the normal, and wherever a crest bends tighter than half the width the
         // outline folds over itself into lumps and corners. A vertical offset never folds; it
-        // does thin a band by cos(slope) on the flanks, which MAX_SLOPE keeps to a fifth.
+        // does thin a band by cos(slope) on the flanks, which MAX_SLOPE keeps to about a quarter.
         let edge = |x: f64, side: f64| centre(x) + side * thickness / 2.0;
         let n = (w / step).ceil() as usize;
         let xs = (0..=n).map(|i| (i as f64 * step).min(w));
