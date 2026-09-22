@@ -12,7 +12,7 @@ pub const SUSTAIN_DEFAULT: f32 = 1.2;
 pub const A4_RANGE: (f32, f32) = (415.0, 466.0);
 pub const SUSTAIN_RANGE: (f32, f32) = (0.5, 2.5);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Config {
     pub a4: f32,
     pub sustain: f32,

@@ -6,6 +6,7 @@
 
 mod audio;
 mod config;
+mod haptics;
 mod paint;
 mod pitch;
 mod settings;

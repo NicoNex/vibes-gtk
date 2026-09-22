@@ -298,6 +298,7 @@ impl SimpleComponent for Settings {
     }
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
+        let before = self.cfg;
         match msg {
             SettingsMsg::A4(v) => self.cfg.a4 = (v as f32).round(),
             SettingsMsg::Preset(i) => match PRESETS.get(i as usize) {
@@ -315,6 +316,11 @@ impl SimpleComponent for Settings {
                 };
             }
             SettingsMsg::Solfege(v) => self.cfg.solfege = v,
+        }
+        // A slider fires on every pixel it is dragged across, but its value moves in whole
+        // steps: the tap marks the step the setting landed on, not the drag.
+        if self.cfg != before {
+            crate::haptics::tap();
         }
         // Quantised values move in whole steps, so this writes once per step, not per pixel —
         // and nothing is lost if the app quits with the dialog still open.
