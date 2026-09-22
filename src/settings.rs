@@ -50,6 +50,15 @@ impl Settings {
         (self.cfg.sustain - SUSTAIN_DEFAULT).abs() < 0.001
     }
 
+    /// The seven natural notes, in the naming the tuner is set to: the preview under Note Names.
+    fn scale_preview(&self) -> String {
+        [0, 2, 4, 5, 7, 9, 11]
+            .iter()
+            .map(|pc| self.cfg.note_name(*pc))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    }
+
     /// The octave rides small and high beside the note, as it does in the tuner itself.
     fn preview_note(&self) -> String {
         format!("{}<span size=\"45%\" rise=\"16pt\">4</span>", self.cfg.note_name(9))
@@ -71,11 +80,22 @@ impl SimpleComponent for Settings {
     type Output = Config;
 
     view! {
-        adw::PreferencesDialog {
+        adw::Dialog {
             set_title: "Preferences",
-            set_search_enabled: false,
+            set_content_width: 420,
 
-            add = &adw::PreferencesPage {
+            #[wrap(Some)]
+            set_child = &adw::ToolbarView {
+                add_top_bar = &adw::HeaderBar {
+                    // GNOME draws a close button on a dialog like this one. On macOS that button
+                    // sits where the traffic lights belong and looks nothing like them, so the
+                    // sheet closes the way a macOS sheet does: Escape, or a click outside it.
+                    set_show_start_title_buttons: !cfg!(target_os = "macos"),
+                    set_show_end_title_buttons: !cfg!(target_os = "macos"),
+                },
+
+                #[wrap(Some)]
+                set_content = &adw::PreferencesPage {
                 // A live preview in the tuner's own sticker: what the chosen names and reference
                 // pitch will look like before the dialog is closed.
                 add = &adw::PreferencesGroup {
@@ -90,6 +110,7 @@ impl SimpleComponent for Settings {
                             set_child = &gtk::DrawingArea {
                                 set_content_width: 120,
                                 set_content_height: 120,
+                                set_accessible_role: gtk::AccessibleRole::Presentation,
                             },
                             add_overlay = &gtk::Label {
                                 set_halign: gtk::Align::Center,
@@ -148,38 +169,39 @@ impl SimpleComponent for Settings {
                                 set_round_digits: 0,
                                 set_adjustment: &gtk::Adjustment::new(model.cfg.a4 as f64, A4_RANGE.0 as f64, A4_RANGE.1 as f64, 1.0, 5.0, 0.0),
                                 #[watch]
-                                set_value: model.a4_value(),
-                                #[watch]
-                                update_property: &[gtk::accessible::Property::ValueText(&model.a4_text())],
+                                update_property: &[
+                                    gtk::accessible::Property::Label("Reference pitch (A4)"),
+                                    gtk::accessible::Property::ValueText(&model.a4_text()),
+                                ],
                                 connect_value_changed[sender] => move |s| {
                                     sender.input(SettingsMsg::A4(s.value()));
+                                },
+                            },
+                            // The standards people actually tune to, one tap away from the slider
+                            // they move. Full width, so five labels never truncate.
+                            adw::ToggleGroup {
+                                set_hexpand: true,
+                                set_homogeneous: true,
+                                set_margin_top: 6,
+                                add: adw::Toggle::builder().label("415").tooltip("Baroque").build(),
+                                add: adw::Toggle::builder().label("432").tooltip("Verdi tuning").build(),
+                                add: adw::Toggle::builder().label("440").tooltip("Modern concert pitch").build(),
+                                add: adw::Toggle::builder().label("442").tooltip("Orchestral").build(),
+                                add: adw::Toggle::builder().label("443").tooltip("Orchestral, central Europe").build(),
+                                #[watch]
+                                set_active: model.preset(),
+                                connect_active_notify[sender] => move |g| {
+                                    sender.input(SettingsMsg::Preset(g.active()));
                                 },
                             },
                             gtk::Label {
                                 add_css_class: "dim-label",
                                 add_css_class: "caption",
                                 set_halign: gtk::Align::Start,
+                                set_margin_top: 4,
                                 set_wrap: true,
                                 set_xalign: 0.0,
                                 set_label: "What the tuner calls concert A, in whole hertz.",
-                            },
-                        },
-                    },
-
-                    adw::ActionRow {
-                        set_title: "Standard",
-
-                        add_suffix = &adw::ToggleGroup {
-                            set_valign: gtk::Align::Center,
-                            add: adw::Toggle::builder().label("415").tooltip("Baroque").build(),
-                            add: adw::Toggle::builder().label("432").tooltip("Verdi tuning").build(),
-                            add: adw::Toggle::builder().label("440").tooltip("Modern concert pitch").build(),
-                            add: adw::Toggle::builder().label("442").tooltip("Orchestral").build(),
-                            add: adw::Toggle::builder().label("443").tooltip("Orchestral, central Europe").build(),
-                            #[watch]
-                            set_active: model.preset(),
-                            connect_active_notify[sender] => move |g| {
-                                sender.input(SettingsMsg::Preset(g.active()));
                             },
                         },
                     },
@@ -223,9 +245,10 @@ impl SimpleComponent for Settings {
                                 set_round_digits: 1,
                                 set_adjustment: &gtk::Adjustment::new(model.cfg.sustain as f64, SUSTAIN_RANGE.0 as f64, SUSTAIN_RANGE.1 as f64, 0.1, 0.5, 0.0),
                                 #[watch]
-                                set_value: model.sustain_value(),
-                                #[watch]
-                                update_property: &[gtk::accessible::Property::ValueText(&model.sustain_text())],
+                                update_property: &[
+                                    gtk::accessible::Property::Label("Sustain"),
+                                    gtk::accessible::Property::ValueText(&model.sustain_text()),
+                                ],
                                 connect_value_changed[sender] => move |s| {
                                     sender.input(SettingsMsg::Sustain(s.value()));
                                 },
@@ -247,11 +270,16 @@ impl SimpleComponent for Settings {
 
                     adw::ActionRow {
                         set_title: "Note Names",
+                        // The choice writes itself out: the seven natural notes, named the way
+                        // the tuner is about to name them.
+                        #[watch]
+                        set_subtitle: &model.scale_preview(),
+                        set_subtitle_lines: 1,
 
                         add_suffix = &adw::ToggleGroup {
                             set_valign: gtk::Align::Center,
-                            add: adw::Toggle::builder().label("A B C").build(),
-                            add: adw::Toggle::builder().label("Do Re Mi").build(),
+                            add: adw::Toggle::builder().label("A B C").tooltip("C D E F G A B").build(),
+                            add: adw::Toggle::builder().label("Do Re Mi").tooltip("Do Re Mi Fa Sol La Si").build(),
                             set_active: model.cfg.solfege as u32,
                             connect_active_notify[sender] => move |g| {
                                 sender.input(SettingsMsg::Solfege(g.active() == 1));
@@ -259,7 +287,21 @@ impl SimpleComponent for Settings {
                         },
                     },
                 },
+                },
             },
+        }
+    }
+
+    // A scale that is handed its own value back mid-keypress applies the step a second time: one
+    // arrow press moved concert A by 2 Hz, and sustain by 0.2 s. So the value only goes back into
+    // a scale when something else moved it — a preset button — which is more than half a step away
+    // from where the scale already is.
+    fn post_view() {
+        if (widgets.a4.value() - self.a4_value()).abs() >= 0.5 {
+            widgets.a4.set_value(self.a4_value());
+        }
+        if (widgets.sustain.value() - self.sustain_value()).abs() >= 0.05 {
+            widgets.sustain.set_value(self.sustain_value());
         }
     }
 
@@ -273,16 +315,14 @@ impl SimpleComponent for Settings {
             if Palette::current().accent.wants_light_text() { "on-dark" } else { "on-light" };
         let widgets = view_output!();
 
-        // One tick per step, as on the Android sliders: the quantisation is visible, and the
-        // default gets a labelled mark of its own.
+        // One tick per step, as on the Android sliders: the quantisation is visible. The ticks
+        // carry no labels — the default sits under the handle, where a label would be covered by
+        // it, and the reading above the slider already spells the value out.
         for hz in A4_RANGE.0 as i32..=A4_RANGE.1 as i32 {
-            let label = (hz as f32 == A4_DEFAULT).then_some("440");
-            widgets.a4.add_mark(hz as f64, gtk::PositionType::Bottom, label);
+            widgets.a4.add_mark(hz as f64, gtk::PositionType::Bottom, None);
         }
         for tenth in (SUSTAIN_RANGE.0 * 10.0) as i32..=(SUSTAIN_RANGE.1 * 10.0) as i32 {
-            let v = tenth as f64 / 10.0;
-            let label = ((v as f32 - SUSTAIN_DEFAULT).abs() < 0.001).then_some("1.2");
-            widgets.sustain.add_mark(v, gtk::PositionType::Bottom, label);
+            widgets.sustain.add_mark(tenth as f64 / 10.0, gtk::PositionType::Bottom, None);
         }
 
         // The in-tune sticker, still: the accent colour, no ring, no sway.
