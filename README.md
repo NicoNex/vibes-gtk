@@ -156,7 +156,7 @@ GNOME Settings and the app follows straight away.
 
 ## Relationship to the Android app
 
-Vibes began as [an Android app](https://github.com/NicoNex/Vibes) in Kotlin and Jetpack Compose.
+Vibes began as an Android app in Kotlin and Jetpack Compose.
 This is a port, not a wrapper: the interface was rebuilt on Adwaita's own colours and widgets
 instead of reproducing Material 3 Expressive.
 
