@@ -311,38 +311,33 @@ impl Anim {
         } else {
             self.palette.error
         };
-        // Wobble character encodes state: a calm sway when idle, a nervous fast wobble while a
-        // note is off pitch, settling once locked.
+        // A slow sway only. The ring below is what shows a note is off; a fast twist on top of
+        // it (it used to be ±7° every 0.78 s) fought the ring and read as jitter.
         let (amp, period) = if !has_pitch {
             (3.0, 2.8)
         } else if in_tune {
-            (1.5, 2.2)
+            (1.0, 3.2)
         } else {
-            (7.0, 0.78)
+            (2.0, 2.4)
         };
         self.wobble_amp_target = amp;
         self.wobble_period = period;
-        // The blob vibrates at the note itself, dropped by whole octaves until it lands in a
-        // range the eye can follow. A4 = 440 Hz → 6.9 Hz; the low E of a guitar → 5.2 Hz. Same
-        // note, same shimmer, every time.
+        // The blob rings at the note itself, dropped by whole octaves into 2–4 Hz: A4 = 440 Hz
+        // → 3.4 Hz; the low E of a guitar → 2.6 Hz. Same note, same ring, every time. One octave
+        // higher, 4–8 Hz, is the band the eye reads as a tremor rather than a swing.
         if has_pitch {
             let mut hz = freq;
-            while hz >= 8.0 {
+            while hz >= 4.0 {
                 hz *= 0.5;
             }
-            while hz < 4.0 {
+            while hz < 2.0 {
                 hz *= 2.0;
             }
             self.vib_hz = hz;
         }
-        // It rings hard while the note is off, and calms to a shimmer once locked.
-        self.vib_amp_target = if !has_pitch {
-            0.0
-        } else if in_tune {
-            0.016
-        } else {
-            0.020 + 0.030 * (cents.abs() / 50.0).min(1.0)
-        };
+        // It rings while the note is off and falls still once locked — only the breath is left.
+        self.vib_amp_target =
+            if !has_pitch || in_tune { 0.0 } else { 0.020 + 0.030 * (cents.abs() / 50.0).min(1.0) };
         self.up_target = if has_pitch && !in_tune && cents < 0.0 { 1.0 } else { 0.0 };
         self.down_target = if has_pitch && !in_tune && cents > 0.0 { 1.0 } else { 0.0 };
     }
@@ -367,7 +362,8 @@ impl Anim {
         // tempo or direction never teleports. Wraps at one colour period → no seam.
         self.scroll = (self.scroll + self.speed * dt32).rem_euclid(1.0);
         self.wobble_phase = (self.wobble_phase + dt32 / self.wobble_period).rem_euclid(1.0);
-        self.vib_amp = approach(self.vib_amp, self.vib_amp_target, 0.20, dt32);
+        // Slower than the 93 ms detection window, so per-window cents jitter never shows as flutter.
+        self.vib_amp = approach(self.vib_amp, self.vib_amp_target, 0.35, dt32);
         self.vib_phase = (self.vib_phase + self.vib_hz * dt32).rem_euclid(1.0);
     }
 }
@@ -396,18 +392,23 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
     let spacing = h / 3.4;
     let period = 3.0 * spacing;
     let move_y = a.scroll as f64 * period;
-    let amp = h * (0.014 + 0.05 * a.energy as f64);
-    let thickness = spacing * 0.62;
+    // The swell is sized from the height but the wavelength from the width, so a tall narrow
+    // window made steep flanks — where a band reads as thin and the gaps between bands narrow to
+    // spikes. The whole range is scaled down until the steepest flank stays under MAX_SLOPE.
+    const HARMONIC: f64 = 0.10;
+    const MAX_SWELL: f64 = 1.18;
+    const MAX_SLOPE: f64 = 0.8;
     let kx = 1.5 * 2.0 * PI;
+    let full = h * 0.054;
+    let cap = MAX_SLOPE / (kx / w * (1.0 + 2.0 * HARMONIC) * MAX_SWELL);
+    let amp = full.min(cap) * (0.014 + 0.04 * a.energy as f64) / 0.054;
+    let thickness = spacing * 0.62;
     let ripple = a.time * (2.0 * PI / 3.2); // one full traverse every 3.2 s
                                             // One vertex every ~3 device pixels: fine enough that no facet shows on a crest, and the
                                             // cost scales with the window instead of with a fixed vertex budget.
     let step = 3.0;
     let count = (h / spacing) as i32;
 
-    cr.set_line_width(thickness);
-    cr.set_line_cap(LineCap::Round);
-    cr.set_line_join(LineJoin::Round);
     for k in -4..=count + 4 {
         let y = k as f64 * spacing + spacing * 0.5 + move_y;
         if y < -spacing || y > h + spacing {
@@ -417,22 +418,34 @@ pub fn draw_waves(cr: &Context, w: f64, h: f64, a: &Anim) {
         set(cr, p.bands[kk]);
         // Each band gets its own amplitude and a second harmonic, so the crests lean and the
         // three tonalities never trace the same curve — the field reads as woven, not ruled.
-        let swell = [1.0, 0.78, 1.18][kk];
+        let a_px = amp * [1.0, 0.78, MAX_SWELL][kk];
         let phase = kk as f64 * 2.094;
-        for i in 0..=(w / step) as usize {
-            let x = (i as f64 * step).min(w);
+        let centre = |x: f64| {
             let u = kx * (x / w);
-            let yy = y + amp
-                * swell
+            y + a_px
                 * ((u + ripple + phase).sin()
-                    + 0.26 * (2.0 * u + 1.7 * ripple + phase * 1.6).sin());
+                    + HARMONIC * (2.0 * u + 1.7 * ripple + phase * 1.6).sin())
+        };
+        // Filled between the centre line shifted up and down, not stroked: a stroke this thick
+        // offsets along the normal, and wherever a crest bends tighter than half the width the
+        // outline folds over itself into lumps and corners. A vertical offset never folds; it
+        // does thin a band by cos(slope) on the flanks, which MAX_SLOPE keeps to a fifth.
+        let edge = |x: f64, side: f64| centre(x) + side * thickness / 2.0;
+        let n = (w / step).ceil() as usize;
+        let xs = (0..=n).map(|i| (i as f64 * step).min(w));
+        for (i, x) in xs.clone().enumerate() {
+            let yy = edge(x, -1.0);
             if i == 0 {
                 cr.move_to(x, yy);
             } else {
                 cr.line_to(x, yy);
             }
         }
-        let _ = cr.stroke();
+        for x in xs.rev() {
+            cr.line_to(x, edge(x, 1.0));
+        }
+        cr.close_path();
+        let _ = cr.fill();
     }
 
     if a.wash > 0.001 {
@@ -462,7 +475,7 @@ fn cookie_path(cr: &Context, cx: f64, cy: f64, r: f64, rotation: f64, vib: f64, 
     let samples = ((r * PI) as usize).clamp(240, 900);
     let osc = (2.0 * PI * vib_phase).sin();
     let scallop = SCALLOP * (1.0 + 3.2 * vib * osc);
-    let scale = r * (1.0 + 0.5 * vib * osc);
+    let scale = r * (1.0 + 0.3 * vib * osc);
     for i in 0..=samples {
         let t = i as f64 / samples as f64 * 2.0 * PI;
         let rr = scale * (1.0 - scallop + scallop * (LOBES * (t + rotation)).cos());
@@ -540,5 +553,32 @@ pub fn draw_chevrons(cr: &Context, w: f64, h: f64, point_up: bool, appear: f32, 
         // A neutral halo first so the arrows read against any wave-band colour.
         chevron(halo_w, p.bg, alpha * 0.75);
         chevron(ink_w, p.accent, alpha);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Scroll after `secs` of a steady reading, unwrapped: negative is up the screen.
+    fn drift(freq: f32, cents: f32, secs: usize) -> f32 {
+        let mut a = Anim::new(Palette::from_accent(Rgb(0.2, 0.5, 0.9), false));
+        a.set_pitch(freq, cents, cents.abs() <= 5.0);
+        let mut total = 0.0;
+        for _ in 0..secs * 60 {
+            a.step(1.0 / 60.0);
+            total += a.speed / 60.0;
+        }
+        total
+    }
+
+    #[test]
+    fn waves_rise_when_flat_fall_when_sharp_and_rest_in_tune() {
+        assert!(drift(430.0, -20.0, 2) < 0.0, "flat must drift up");
+        assert!(drift(450.0, 20.0, 2) > 0.0, "sharp must drift down");
+        assert!(drift(440.0, 0.0, 2).abs() < 1e-6, "in tune must be still");
+        assert!(drift(-1.0, 0.0, 2).abs() < 1e-6, "silence must be still");
+        // Further off, faster.
+        assert!(drift(420.0, -40.0, 2) < drift(430.0, -10.0, 2));
     }
 }
