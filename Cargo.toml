@@ -13,6 +13,11 @@ gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
 adw = { package = "libadwaita", version = "0.9", features = ["v1_7"] }
 cpal = "0.18"
 
+# Native PipeWire capture: cpal's default host then prefers it and falls back to ALSA, which also
+# sidesteps whatever ~/.asoundrc has done to ALSA's "default" device.
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18", features = ["pipewire"] }
+
 [profile.release]
 lto = true
 strip = true
