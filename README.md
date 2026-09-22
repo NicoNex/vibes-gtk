@@ -31,8 +31,8 @@ the whole window changes colour and direction, and you catch it in your peripher
 - **The background shows the direction.** A full-bleed field of wavy bands drifts **up when you
   are flat, down when you are sharp** — faster the further off you are, and still once you lock in.
 - **The sticker rings at the note it hears.** Its twelve lobes pump at the detected frequency
-  itself, dropped by whole octaves into a range the eye can follow: A4 becomes 6.9 Hz, the low E
-  of a guitar 5.2 Hz.
+  itself, dropped by whole octaves into a range the eye can follow: A4 becomes 3.4 Hz, the low E
+  of a guitar 2.6 Hz. Once you are in tune it falls still and only breathes.
 - **It keeps chasing a decaying string.** Pluck once and the reading holds for 1.2 s after the
   note falls below the noise floor, so you can turn the peg with both hands.
 
@@ -59,7 +59,8 @@ the whole window changes colour and direction, and you catch it in your peripher
 
 ## Install
 
-Vibes needs GTK 4, libadwaita 1.7 or newer, and a Rust toolchain.
+Vibes needs GTK 4, libadwaita 1.7 or newer, and a Rust toolchain. On Linux it also builds
+against PipeWire and ALSA (`libpipewire-0.3` headers and libclang).
 
 ```bash
 git clone https://github.com/NicoNex/vibes-gtk
@@ -92,7 +93,8 @@ make linux-arm64      # needs docker or podman; leaves ./vibes-linux-arm64
 GTK cannot be cross-linked from a foreign host without a full target sysroot, since `gtk4-sys`
 asks pkg-config for the target's GTK, libadwaita and ALSA. Building inside the target's own
 container sidesteps that. On Apple Silicon the arm64 container runs natively rather than
-emulated. Point it at another architecture with `CROSS_PLATFORM`:
+emulated; on an x86_64 Linux host it runs under QEMU, which needs `qemu-user-static` registered
+with binfmt_misc (on Arch: `qemu-user-static qemu-user-static-binfmt`). Point it at another architecture with `CROSS_PLATFORM`:
 
 ```bash
 make linux-arm64 CROSS_PLATFORM=linux/amd64 CROSS_OUT=vibes-linux-amd64
@@ -149,6 +151,9 @@ Ensembles playing period instruments tune there.
 **Does it work on Wayland and X11?**
 Both. It is an ordinary GTK 4 application and makes no display-server-specific calls.
 
+**Which audio system does it use on Linux?**
+PipeWire, natively. Where PipeWire is not running it falls back to ALSA's default device.
+
 **How do I change the colours?**
 You don't, directly. Vibes derives its whole palette from your system accent colour and your
 light/dark preference, using libadwaita's own palette for the wave bands. Change the accent in
@@ -165,7 +170,7 @@ instead of reproducing Material 3 Expressive.
 | Material You wallpaper palette | The libadwaita accent colour and the Adwaita palette, followed live |
 | `MaterialShapes.Cookie12Sided` | The same silhouette, drawn in Cairo from a single polar radius |
 | `MotionScheme` spring specs | Frame-rate independent exponential chase on every animated value |
-| Compose predictive back | A settings window with the system decorations |
+| Compose predictive back | An `AdwPreferencesDialog`, behind the primary menu |
 | Runtime microphone permission | The desktop has none; a failure shows an `AdwStatusPage` |
 | Haptics on lock and slider steps | Dropped — desktops have no vibrator |
 
@@ -190,13 +195,14 @@ screen.
 | `src/audio.rs` | cpal capture, the detection worker, and the smoothing that follows it |
 | `src/paint.rs` | The palette, the animation state, and every Cairo drawing routine |
 | `src/main.rs` | The tuner window |
-| `src/settings.rs` | The settings window |
+| `src/settings.rs` | The preferences dialog |
 | `data/icons/` | The app icon on the GNOME HIG canvas, and the script that generates it |
 
 ## Status
 
-Working, and not yet packaged. Built and run against GTK 4.24 and libadwaita 1.10. There is no
-Flatpak or distribution package yet — `make install` is the supported route.
+Working. Built and run against GTK 4.24 and libadwaita 1.10. On Arch Linux, `make arch` builds a
+pacman package in the repository root (`sudo pacman -U vibes-*.pkg.tar.zst`); elsewhere
+`make install` is the supported route. There is no Flatpak yet.
 
 ## License
 
