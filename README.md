@@ -80,6 +80,24 @@ To try it without installing:
 make run
 ```
 
+### Building for ARM Linux
+
+For a Raspberry Pi, a PinePhone, a Librem 5 or an ARM server, build on the device itself with
+`make` — or, from another machine, inside an arm64 container:
+
+```bash
+make linux-arm64      # needs docker or podman; leaves ./vibes-linux-arm64
+```
+
+GTK cannot be cross-linked from a foreign host without a full target sysroot, since `gtk4-sys`
+asks pkg-config for the target's GTK, libadwaita and ALSA. Building inside the target's own
+container sidesteps that. On Apple Silicon the arm64 container runs natively rather than
+emulated. Point it at another architecture with `CROSS_PLATFORM`:
+
+```bash
+make linux-arm64 CROSS_PLATFORM=linux/amd64 CROSS_OUT=vibes-linux-amd64
+```
+
 ## How it works
 
 Vibes detects pitch with a **YIN autocorrelation detector** (de Cheveigné & Kawahara, 2002),
