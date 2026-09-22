@@ -1,69 +1,184 @@
-# Vibes 🎸 — GTK4 / libadwaita
+# Vibes 🎸
 
-A chromatic instrument tuner. Rust port of [Vibes for Android](../Vibes), keeping the editorial
-look — full-bleed wavy bands, a scalloped note sticker, physics-driven motion — but rebuilt on
-**Adwaita's** own colours and widgets instead of Material 3 Expressive.
+**A chromatic instrument tuner for GNOME. Play a note — it tells you which one, and which way to turn the peg.**
 
-Built with **relm4** on gtk4-rs + libadwaita.
+Vibes is a free, open-source chromatic tuner for Linux desktops and phones, written in Rust with
+GTK 4, libadwaita and [relm4](https://relm4.org). It hears any note through the microphone, names
+it, and shows how far off you are in cents. No instrument presets, no account, no network — the
+audio never leaves the machine.
 
-## What the port keeps
+<p align="center">
+  <img src="docs/screenshots/light-flat.png"    width="30%" alt="Vibes showing a flat G3, chevrons pointing up" />
+  <img src="docs/screenshots/light-in-tune.png" width="30%" alt="Vibes showing A4 in tune at 440 Hz" />
+  <img src="docs/screenshots/light-sharp.png"   width="30%" alt="Vibes showing a sharp A#3, chevrons pointing down" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/dark-flat.png"    width="30%" alt="Vibes in the dark theme, note flat" />
+  <img src="docs/screenshots/dark-in-tune.png" width="30%" alt="Vibes in the dark theme, note in tune" />
+  <img src="docs/screenshots/dark-sharp.png"   width="30%" alt="Vibes in the dark theme, note sharp" />
+</p>
 
-- **Chromatic detection** — the same YIN detector (DC removal, low silence gate, median
-  smoothing, octave-error correction, grace hold), ported line for line with its tests.
-- **Glanceable feedback** — the note in a big serif inside a 12-lobed scalloped blob, a status
-  pill (IN TUNE / SHARP ↓ / FLAT ↑), marching chevrons, and a field of wavy bands that drifts
-  **up when flat / down when sharp**, faster the further off you are and still once you lock in.
-- **The sticker rings at the note** — the blob's lobes pump at the detected frequency itself,
-  dropped by whole octaves into a range the eye can follow (A4 → 6.9 Hz). Hard while the note is
-  off, a shimmer once it locks.
-- **Adaptive** — one layout from 360×294 (GNOME Mobile's floor) to a maximised desktop window:
-  the blob, the chevrons and the note's typography all size themselves from the space they get.
-- **Settings** — reference pitch (415–466 Hz), note names (`A B C` / `Do Re Mi`), and sustain
-  (0.5–2.5 s, with a magnetic detent on the 1.2 s default).
+---
 
-## What the port changes
+## Why another tuner
+
+Most desktop tuners look like test equipment: a needle, a strobe, a grid of numbers. You have to
+read them. Vibes is built so you can tune while looking at the instrument instead of the screen —
+the whole window changes colour and direction, and you catch it in your peripheral vision.
+
+- **One glance tells you everything.** The note sits in a big serif inside a coloured sticker.
+  Red means flat, amber means sharp, your accent colour means in tune.
+- **The background shows the direction.** A full-bleed field of wavy bands drifts **up when you
+  are flat, down when you are sharp** — faster the further off you are, and still once you lock in.
+- **The sticker rings at the note it hears.** Its twelve lobes pump at the detected frequency
+  itself, dropped by whole octaves into a range the eye can follow: A4 becomes 6.9 Hz, the low E
+  of a guitar 5.2 Hz.
+- **It keeps chasing a decaying string.** Pluck once and the reading holds for 1.2 s after the
+  note falls below the noise floor, so you can turn the peg with both hands.
+
+## Features
+
+| | |
+|---|---|
+| **Chromatic** | Hears any note, all twelve pitch classes across every octave. Nothing to select. |
+| **Exact readout** | Frequency in Hz and deviation in cents. In tune means within ±5 cents. |
+| **Reference pitch** | A4 adjustable from 415 Hz (baroque) to 466 Hz, in 1 Hz steps. |
+| **Note names** | `A B C` or `Do Re Mi` — solfège for anyone who learned it that way. |
+| **Sustain** | How long a note is held after the string fades: 0.5–2.5 s, default 1.2 s. |
+| **Follows your theme** | Takes the accent colour and light/dark from the system, live, without a restart. |
+| **Adaptive** | The same layout from a 360 × 294 phone window to a maximised desktop one. |
+| **Offline** | Opens no sockets. The microphone stream is analysed in memory and discarded. |
+| **Small** | An 868 KB binary, and no runtime dependencies beyond GTK 4 and libadwaita. |
+
+<p align="center">
+  <img src="docs/screenshots/light-listening.png" width="24%" alt="Vibes waiting for a note" />
+  <img src="docs/screenshots/light-solfege.png"   width="24%" alt="Vibes with solfège note names, showing Re4" />
+  <img src="docs/screenshots/settings.png"        width="24%" alt="The Vibes settings window" />
+  <img src="docs/screenshots/dark-settings.png"   width="24%" alt="The Vibes settings window, dark theme" />
+</p>
+
+## Install
+
+Vibes needs GTK 4, libadwaita 1.7 or newer, and a Rust toolchain.
+
+```bash
+git clone https://github.com/NicoNex/vibes-gtk
+cd vibes-gtk
+make            # builds release, leaves ./vibes in the repository root
+make install    # binary, desktop entry and icons under ~/.local
+```
+
+`make install` honours `PREFIX` and `DESTDIR`, so packagers can point it anywhere:
+
+```bash
+make install PREFIX=/usr DESTDIR="$pkgdir"
+```
+
+To try it without installing:
+
+```bash
+make run
+```
+
+## How it works
+
+Vibes detects pitch with a **YIN autocorrelation detector** (de Cheveigné & Kawahara, 2002),
+running on a worker thread so the audio callback never blocks.
+
+Each detection window is 4096 samples — about 93 ms at 44.1 kHz, long enough to resolve the low E
+of a bass guitar. Every window goes through:
+
+1. **DC removal**, so a microphone's bias offset does not swamp a quiet signal.
+2. **A silence gate, set low on purpose.** YIN's own clarity threshold rejects broadband noise
+   whatever its level, so the gate only has to skip true silence — which is what keeps quiet
+   notes usable.
+3. **The difference function and its cumulative mean normalisation**, then the first minimum
+   below a clarity threshold of 0.15.
+4. **Parabolic interpolation** around that minimum, for sub-sample accuracy.
+5. **A median of the last five readings**, which rejects single-frame outliers.
+6. **Octave-error correction.** A reading near double or half the running estimate is folded back
+   toward it — this is where naive detectors report a guitar's low E an octave high.
+7. **A grace hold**, so a plucked note is still chased as it decays below the gate.
+
+The interface is drawn in Cairo against the frame clock, over shared animation state the relm4
+update loop never touches. Every animated value chases its target on an exponential curve rather
+than a fixed-duration tween, so changing the target mid-flight never snaps or restarts.
+
+## Frequently asked questions
+
+**Does Vibes work with any instrument?**
+Yes. It is chromatic — it reports whatever note it hears, so it works for guitar, bass, violin,
+ukulele, brass, voice, or a piano you are checking string by string. There are no instrument
+presets to choose between.
+
+**Does it need an internet connection?**
+No. Vibes opens no network sockets at all. Audio is read from the microphone, analysed in memory
+and discarded; the only thing written to disk is your three settings.
+
+**How accurate is it?**
+The readout is in cents — hundredths of a semitone. "In tune" means within ±5 cents, roughly the
+point where a trained ear stops hearing beating against a reference.
+
+**Does it run on a Linux phone?**
+Yes. The window goes down to 360 × 294, GNOME Mobile's floor, and the sticker, the chevrons and
+the note's typography all size themselves from the space they are given rather than from fixed
+pixel values.
+
+**Why is A4 adjustable down to 415 Hz?**
+415 Hz is the common baroque pitch standard, about a semitone below modern concert pitch.
+Ensembles playing period instruments tune there.
+
+**Does it work on Wayland and X11?**
+Both. It is an ordinary GTK 4 application and makes no display-server-specific calls.
+
+**How do I change the colours?**
+You don't, directly. Vibes derives its whole palette from your system accent colour and your
+light/dark preference, using libadwaita's own palette for the wave bands. Change the accent in
+GNOME Settings and the app follows straight away.
+
+## Relationship to the Android app
+
+Vibes began as [an Android app](https://github.com/NicoNex/Vibes) in Kotlin and Jetpack Compose.
+This is a port, not a wrapper: the interface was rebuilt on Adwaita's own colours and widgets
+instead of reproducing Material 3 Expressive.
 
 | Android | Here |
 |---|---|
-| Material You wallpaper palette | The libadwaita **accent colour**, followed live along with light/dark |
-| `MaterialShapes.Cookie12Sided` | The same silhouette drawn in cairo as a disc unioned with twelve lobes |
+| Material You wallpaper palette | The libadwaita accent colour and the Adwaita palette, followed live |
+| `MaterialShapes.Cookie12Sided` | The same silhouette, drawn in Cairo from a single polar radius |
 | `MotionScheme` spring specs | Frame-rate independent exponential chase on every animated value |
-| Compose predictive back | `AdwWindow` settings window with the system decorations |
-| Runtime mic permission | The desktop has none; a failure shows an `AdwStatusPage` instead |
+| Compose predictive back | A settings window with the system decorations |
+| Runtime microphone permission | The desktop has none; a failure shows an `AdwStatusPage` |
 | Haptics on lock and slider steps | Dropped — desktops have no vibrator |
 
-## Build & run
+The pitch DSP is a line-for-line port, and its tests came across with it.
 
-Needs GTK 4 and libadwaita 1.7+ development packages.
-
-```bash
-cargo run --release
-```
-
-To have the shell show the icon and the app in its launcher:
+## Development
 
 ```bash
-install -Dm644 data/com.niconex.Vibes.desktop ~/.local/share/applications/com.niconex.Vibes.desktop
-install -Dm644 data/icons/com.niconex.Vibes.svg ~/.local/share/icons/hicolor/scalable/apps/com.niconex.Vibes.svg
-install -Dm644 data/icons/com.niconex.Vibes-symbolic.svg ~/.local/share/icons/hicolor/symbolic/apps/com.niconex.Vibes-symbolic.svg
+make test       # the pitch DSP, the note maths and settings parsing
+make check      # the above, plus cargo fmt --check
+make preview    # renders the painted layer to PNGs in /tmp, no window needed
+make icons      # regenerates the app icon and its symbolic variant
 ```
 
-```bash
-cargo test                      # the pitch DSP and note math
-cargo run --example render      # offscreen PNGs of the painted layer, into /tmp
-```
-
-## Layout
+`VIBES_DEMO_HZ` pins the reading to a fixed frequency and leaves the microphone closed — which is
+how the screenshots above were taken, without an instrument. `VIBES_DEMO_HZ=0` gives the idle
+screen.
 
 | File | |
 |---|---|
-| `src/pitch.rs` | YIN detector + note math, no GTK, fully tested |
-| `src/audio.rs` | cpal capture → detection worker → Hz |
-| `src/paint.rs` | Palette, animation state, and every cairo drawing routine |
+| `src/pitch.rs` | YIN detector and note maths. No GTK, fully tested. |
+| `src/audio.rs` | cpal capture, the detection worker, and the smoothing that follows it |
+| `src/paint.rs` | The palette, the animation state, and every Cairo drawing routine |
 | `src/main.rs` | The tuner window |
 | `src/settings.rs` | The settings window |
-| `src/style.css` | Chip, readout and note typography, on libadwaita named colours |
-| `data/icons/` | The app icon on the GNOME HIG canvas, plus its symbolic variant |
+| `data/icons/` | The app icon on the GNOME HIG canvas, and the script that generates it |
+
+## Status
+
+Working, and not yet packaged. Built and run against GTK 4.24 and libadwaita 1.10. There is no
+Flatpak or distribution package yet — `make install` is the supported route.
 
 ## License
 
