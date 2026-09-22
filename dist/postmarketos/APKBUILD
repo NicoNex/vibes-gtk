@@ -1,0 +1,23 @@
+# Built from this checkout, not a tarball: `make postmarketos` from the repository root.
+pkgname=vibes
+pkgver=$(sed -n 's/^version = "\(.*\)"/\1/p' "$startdir/../../Cargo.toml" | head -n1)
+pkgrel=0
+pkgdesc="A chromatic instrument tuner for GNOME and Phosh"
+url="https://github.com/NicoNex/vibes-gtk"
+arch="aarch64 x86_64 armv7"
+license="GPL-3.0-or-later"
+depends="pipewire"
+makedepends="cargo clang-dev gtk4.0-dev libadwaita-dev pipewire-dev alsa-lib-dev"
+# net: cargo fetches crates. !check: the tests run on the host, and under QEMU they would
+# rebuild the whole tree a second time.
+options="net !check"
+source=""
+builddir="$startdir/../.."
+
+build() {
+	cargo build --release --locked
+}
+
+package() {
+	make install PREFIX=/usr DESTDIR="$pkgdir"
+}

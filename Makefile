@@ -7,15 +7,24 @@ CONTAINER ?= $(shell command -v podman || command -v docker)
 CROSS_PLATFORM ?= linux/arm64
 CROSS_IMAGE ?= rust:1-trixie
 CROSS_OUT ?= vibes-linux-arm64
+PMOS_PLATFORM ?= linux/arm64
+# musl gives up on a name when a router answers the AAAA query with NXDOMAIN, which glibc
+# shrugs off, so the Alpine build asks a public resolver. Point it elsewhere if you prefer.
+PMOS_DNS ?= 1.1.1.1
 
-.PHONY: all run test check preview icons install uninstall clean linux-arm64 arch
+# Honours CARGO_TARGET_DIR, so a container build installs its own binary, not the host's.
+BIN := $(or $(CARGO_TARGET_DIR),target)/release/vibes
+
+.PHONY: all run test check preview icons install uninstall clean linux-arm64 arch postmarketos
 
 # The binary, dropped in the repository root — same place the Android Makefile left its apk.
 all: vibes
 
-vibes: $(shell find src -type f) Cargo.toml
+vibes: $(BIN)
+	cp -f $(BIN) vibes
+
+$(BIN): $(shell find src -type f) Cargo.toml
 	cargo build --release
-	cp -f target/release/vibes vibes
 
 run:
 	cargo run --release
@@ -69,10 +78,27 @@ linux-arm64:
 arch:
 	cd dist/arch && PKGDEST="$(CURDIR)" makepkg -f
 
+# A postmarketOS (Alpine) package for a phone: ./vibes-<ver>-r0-<arch>.apk. Built inside an
+# alpine:edge container of the phone's architecture, so it links the same musl and libraries
+# pmOS ships. From an x86_64 host that needs the QEMU binfmt setup described for linux-arm64.
+# Signed with a throwaway key, so install it with: apk add --allow-untrusted vibes-*.apk
+postmarketos:
+	@test -n "$(CONTAINER)" || { echo "No docker or podman found."; exit 1; }
+	$(CONTAINER) run --rm --platform $(PMOS_PLATFORM) --dns $(PMOS_DNS) \
+		-v "$(CURDIR)":/src -w /src/dist/postmarketos \
+		-v vibes-pmos-registry:/root/.cargo/registry \
+		-v vibes-pmos-target:/target \
+		alpine:edge sh -c '\
+			apk add -q alpine-sdk && \
+			abuild-keygen -a -n -q && \
+			CARGO_TARGET_DIR=/target REPODEST=/tmp/repo abuild -F -r -q && \
+			cp /tmp/repo/*/*/vibes-*.apk /src/'
+	@ls vibes-*.apk
+
 # ponytail: mkdir + cp rather than `install -D`, which BSD install does not have.
-install: vibes
+install: $(BIN)
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	cp vibes $(DESTDIR)$(PREFIX)/bin/vibes
+	cp $(BIN) $(DESTDIR)$(PREFIX)/bin/vibes
 	chmod 755 $(DESTDIR)$(PREFIX)/bin/vibes
 	mkdir -p $(DESTDIR)$(PREFIX)/share/applications
 	cp data/$(APP_ID).desktop $(DESTDIR)$(PREFIX)/share/applications/
@@ -95,5 +121,5 @@ uninstall:
 
 clean:
 	cargo clean
-	rm -f vibes vibes-linux-* vibes-*.pkg.tar.*
+	rm -f vibes vibes-linux-* vibes-*.pkg.tar.* vibes-*.apk
 	rm -rf dist/arch/src dist/arch/pkg

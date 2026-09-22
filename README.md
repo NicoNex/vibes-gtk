@@ -202,7 +202,9 @@ screen.
 
 Working. Built and run against GTK 4.24 and libadwaita 1.10. On Arch Linux, `make arch` builds a
 pacman package in the repository root (`sudo pacman -U vibes-*.pkg.tar.zst`); elsewhere
-`make install` is the supported route. There is no Flatpak yet.
+`make install` is the supported route. For a phone on postmarketOS, `make postmarketos` builds an
+aarch64 `.apk` inside an Alpine container (`apk add --allow-untrusted vibes-*.apk` on the phone).
+There is no Flatpak yet.
 
 ## License
 
