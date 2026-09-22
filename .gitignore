@@ -8,3 +8,4 @@
 /dist/postmarketos/tmp
 /dist/postmarketos/src
 /dist/postmarketos/pkg
+.DS_Store
