@@ -1,4 +1,4 @@
-/* Everything here leans on libadwaita's named colours, so the app follows the user's accent
+/* Everything here leans on libadwaita's CSS variables, so the app follows the user's accent
    and light/dark preference with no runtime CSS regeneration. */
 
 /* The status pill: LISTENING / IN TUNE / SHARP / FLAT. */
@@ -10,15 +10,15 @@
   letter-spacing: 0.09em;
   transition: background-color 260ms ease, color 260ms ease;
 }
-.chip.idle  { background: @card_bg_color; color: @window_fg_color; }
-.chip.tune  { background: @accent_bg_color;  color: @accent_fg_color; }
-.chip.sharp { background: @warning_bg_color; color: @warning_fg_color; }
-.chip.flat  { background: @error_bg_color;   color: @error_fg_color; }
+.chip.idle  { background: var(--card-bg-color); color: var(--window-fg-color); }
+.chip.tune  { background: var(--accent-bg-color);  color: var(--accent-fg-color); }
+.chip.sharp { background: var(--warning-bg-color); color: var(--warning-fg-color); }
+.chip.flat  { background: var(--error-bg-color);   color: var(--error-fg-color); }
 
 /* Hz + cents readout — a tonal pill so it stays legible over the coloured bands. */
 .readout {
-  background: @card_bg_color;
-  color: @window_fg_color;
+  background: var(--card-bg-color);
+  color: var(--window-fg-color);
   border-radius: 999px;
   padding: 8px 20px;
   font-size: 16px;
@@ -46,7 +46,7 @@
 
 /* Shown in the readout's place while nothing is locked: says what to do, rather than spinning. */
 .hint {
-  color: @window_fg_color;
+  color: var(--window-fg-color);
   opacity: 0.55;
   font-size: 15px;
   animation: hint-breathe 2.6s ease-in-out infinite;
@@ -63,11 +63,11 @@
 .setting-value {
   font-size: 28px;
   font-weight: 300;
-  color: @accent_color;
+  color: var(--accent-color);
 }
 .badge {
-  background: @accent_bg_color;
-  color: @accent_fg_color;
+  background: var(--accent-bg-color);
+  color: var(--accent-fg-color);
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 11px;

@@ -32,7 +32,9 @@ impl Rgb {
         )
     }
 
-    /// True when white text sits better on this colour than black — WCAG relative luminance.
+    /// True when white text on this colour clears WCAG's 3:1 for large text — the note is
+    /// display-sized. 1.05 / (L + 0.05) >= 3 puts the crossover at L = 0.30; the old 0.45 put
+    /// white on Adwaita's amber at about 2:1.
     pub fn wants_light_text(self) -> bool {
         fn lin(c: f64) -> f64 {
             if c <= 0.03928 {
@@ -41,7 +43,7 @@ impl Rgb {
                 ((c + 0.055) / 1.055).powf(2.4)
             }
         }
-        0.2126 * lin(self.0) + 0.7152 * lin(self.1) + 0.0722 * lin(self.2) < 0.45
+        0.2126 * lin(self.0) + 0.7152 * lin(self.1) + 0.0722 * lin(self.2) <= 0.30
     }
 
     fn to_hsl(self) -> (f64, f64, f64) {
@@ -254,6 +256,9 @@ pub struct Anim {
     pub up: f32,
     pub down_target: f32,
     pub down: f32,
+
+    /// The system asked for no animations: decoration freezes, the directional drift stays.
+    pub reduced: bool,
 }
 
 /// The blob stops growing here, so it scales down to a phone without becoming a dinner
@@ -289,6 +294,7 @@ impl Anim {
             up: 0.0,
             down_target: 0.0,
             down: 0.0,
+            reduced: false,
         }
     }
 
@@ -346,7 +352,15 @@ impl Anim {
     /// target mid-flight never snaps or restarts, which is what makes the motion feel physical.
     pub fn step(&mut self, dt: f64) {
         let dt32 = dt as f32;
-        self.time += dt;
+        // Reduced motion stops the clock every ornament runs on (ripple, breath, pulse, the
+        // chevrons' march) and silences the ring and sway. The drift up or down is the tuning
+        // instruction itself, so it keeps moving.
+        if self.reduced {
+            self.vib_amp_target = 0.0;
+            self.wobble_amp_target = 0.0;
+        } else {
+            self.time += dt;
+        }
         self.speed = approach(self.speed, self.speed_target, 0.35, dt32);
         self.energy = approach(self.energy, self.energy_target, 0.30, dt32);
         self.wobble_amp = approach(self.wobble_amp, self.wobble_amp_target, 0.25, dt32);
@@ -582,5 +596,29 @@ mod tests {
         assert!(drift(-1.0, 0.0, 2).abs() < 1e-6, "silence must be still");
         // Further off, faster.
         assert!(drift(420.0, -40.0, 2) < drift(430.0, -10.0, 2));
+    }
+
+    #[test]
+    fn note_ink_is_legible_on_every_state_colour() {
+        // Adwaita's light and dark warning ambers want dark ink; its accent blue and error red
+        // keep white, as libadwaita's own accent-fg does.
+        assert!(!Rgb::hex(0xe5a50a).wants_light_text());
+        assert!(!Rgb::hex(0xcd9309).wants_light_text());
+        assert!(Rgb::hex(0x3584e4).wants_light_text());
+        assert!(Rgb::hex(0xe01b24).wants_light_text());
+        assert!(Rgb::hex(0xc01c28).wants_light_text());
+    }
+
+    #[test]
+    fn reduced_motion_freezes_ornament_but_keeps_the_drift() {
+        let mut a = Anim::new(Palette::from_accent(Rgb(0.2, 0.5, 0.9), false));
+        a.reduced = true;
+        a.set_pitch(430.0, -20.0, false);
+        for _ in 0..120 {
+            a.step(1.0 / 60.0);
+        }
+        assert_eq!(a.time, 0.0);
+        assert!(a.vib_amp < 0.001 && a.wobble_amp < 0.1);
+        assert!(a.speed < 0.0, "flat must still drift up");
     }
 }

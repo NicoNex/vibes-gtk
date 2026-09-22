@@ -171,6 +171,11 @@ fn setup_painting(
     sender: &ComponentSender<App>,
 ) {
     // --- painting -----------------------------------------------------------------------
+    // Pure decoration to assistive technology: the chip, the note and the readout carry
+    // everything these areas show, and an unlabelled drawing is only noise to a screen reader.
+    for area in [&widgets.waves, &widgets.blob, &widgets.arrows_up, &widgets.arrows_down] {
+        area.update_state(&[gtk::accessible::State::Hidden(true)]);
+    }
     let a = anim.clone();
     widgets
         .waves
@@ -237,6 +242,14 @@ fn setup_painting(
             down.queue_draw();
         }
         relm4::gtk::glib::ControlFlow::Continue
+    });
+
+    // --- follow the system's animation preference live -------------------------------
+    let settings = gtk::Settings::default().expect("a display");
+    anim.borrow_mut().reduced = !settings.is_gtk_enable_animations();
+    let a = anim.clone();
+    settings.connect_gtk_enable_animations_notify(move |s| {
+        a.borrow_mut().reduced = !s.is_gtk_enable_animations();
     });
 
     // --- follow the system theme live ---------------------------------------------------
@@ -346,6 +359,8 @@ impl SimpleComponent for App {
                                 gtk::Label {
                                     set_opacity: 0.0,
                                     set_can_target: false,
+                                    // Layout only: a screen reader would read the octave twice.
+                                    update_state: &[gtk::accessible::State::Hidden(true)],
                                     #[watch]
                                     set_label: &model.octave_text(),
                                     #[watch]
@@ -515,7 +530,17 @@ impl SimpleComponent for App {
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
-            Msg::Freq(freq) => self.freq = freq,
+            Msg::Freq(freq) => {
+                let was_in_tune = self.in_tune();
+                self.freq = freq;
+                // Only the lock-in is spoken: every reading would be ten announcements a second.
+                if self.in_tune() && !was_in_tune {
+                    let text = format!("{}{}, in tune", self.note_text(), self.octave_text());
+                    self.window
+                        .upcast_ref::<gtk::Widget>()
+                        .announce(&text, gtk::AccessibleAnnouncementPriority::Medium);
+                }
+            }
             Msg::OpenSettings => self.settings.widget().present(Some(&self.window)),
             Msg::CfgChanged(cfg) => {
                 self.cfg = cfg;

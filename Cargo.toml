@@ -8,8 +8,8 @@ license = "GPL-3.0-or-later"
 [dependencies]
 relm4 = { version = "0.11", features = ["libadwaita"] }
 # Listed explicitly only to turn on the version features: AdwToggleGroup (1.7), AdwSpinner and
-# StyleManager::accent-color (1.6). relm4 re-exports these very crates, so there is one copy.
-gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+# StyleManager::accent-color (1.6), and GtkAccessible::announce (GTK 4.14). relm4 re-exports these very crates, so there is one copy.
+gtk = { package = "gtk4", version = "0.11", features = ["v4_14"] }
 adw = { package = "libadwaita", version = "0.9", features = ["v1_7"] }
 cpal = "0.18"
 
