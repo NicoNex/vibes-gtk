@@ -94,15 +94,23 @@ arch:
 # pmOS ships. From an x86_64 host that needs the QEMU binfmt setup described for linux-arm64.
 # Signed with a throwaway key, so install it with: apk add --allow-untrusted vibes-*.apk
 #
+# Three named volumes keep the work: the apk cache, so the toolchain and the GTK headers are
+# downloaded once; CARGO_HOME, which abuild otherwise points at a temporary directory it throws
+# away, so every crate was re-extracted with fresh timestamps and cargo rebuilt the whole tree
+# each time; and the target directory. Only the first build pays.
+#
 # Compiling gtk4 needs real memory: on a default `podman machine` (2 GiB, no swap) rustc is
 # SIGKILLed by the OOM killer partway through, which reads as a plain "could not compile gtk4".
 # Give the VM 8 GiB first: podman machine stop && podman machine set --memory 8192 && podman machine start
 postmarketos: container-check
 	$(CONTAINER) run --rm --platform $(PMOS_PLATFORM) --dns $(PMOS_DNS) \
 		-v "$(CURDIR)":/src -w /src/dist/postmarketos \
-		-v vibes-pmos-registry:/root/.cargo/registry \
+		-v vibes-pmos-apk:/var/cache/apk \
+		-v vibes-pmos-cargo:/cargo \
 		-v vibes-pmos-target:/target \
+		-e CARGO_HOME=/cargo \
 		alpine:edge sh -c '\
+			ln -sf /var/cache/apk /etc/apk/cache && \
 			apk add -q alpine-sdk && \
 			abuild-keygen -a -n -q && cp /root/.config/abuild/*.rsa.pub /etc/apk/keys/ && \
 			CARGO_TARGET_DIR=/target REPODEST=/tmp/repo abuild -F -r -q && \
