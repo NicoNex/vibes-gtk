@@ -44,34 +44,6 @@
 /* The headerbar floats over the wave field, so it must not paint a background of its own. */
 .vibes-header { background: none; box-shadow: none; }
 
-/* ...which leaves its buttons with nothing to sit on. A tonal container from the theme's own
-   card colour keeps the icon legible over any wave band, in either theme. */
-button.tonal {
-  background: @card_bg_color;
-  color: @window_fg_color;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
-  min-width: 34px;
-  min-height: 34px;
-}
-button.tonal:hover { background: mix(@card_bg_color, @window_fg_color, 0.1); }
-button.tonal:active { background: mix(@card_bg_color, @window_fg_color, 0.18); }
-
-/* Settings: the big editorial value above each slider. */
-.bignum {
-  font-size: 32px;
-  font-weight: 300;
-  color: @accent_color;
-}
-.badge {
-  background: @accent_bg_color;
-  color: @accent_fg_color;
-  border-radius: 999px;
-  padding: 3px 11px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-}
-
 /* Shown in the readout's place while nothing is locked: says what to do, rather than spinning. */
 .hint {
   color: @window_fg_color;
@@ -82,4 +54,23 @@ button.tonal:active { background: mix(@card_bg_color, @window_fg_color, 0.18); }
 @keyframes hint-breathe {
   0%, 100% { opacity: 0.4; }
   50%      { opacity: 0.78; }
+}
+
+/* The note inside the preferences' preview sticker. */
+.preview-note { font-size: 40px; }
+
+/* Preferences: the big value above each slider, and the pill that marks the default. */
+.setting-value {
+  font-size: 28px;
+  font-weight: 300;
+  color: @accent_color;
+}
+.badge {
+  background: @accent_bg_color;
+  color: @accent_fg_color;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
 }

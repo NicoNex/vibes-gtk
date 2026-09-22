@@ -14,6 +14,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use adw::prelude::*;
+use relm4::gtk::gio;
 use relm4::gtk::pango;
 use relm4::prelude::*;
 use relm4::{adw, gtk};
@@ -248,6 +249,10 @@ fn setup_painting(
     style.connect_accent_color_notify(move |_| {
         let _ = s.send(Msg::ThemeChanged);
     });
+    let s = sender.input_sender().clone();
+    style.connect_high_contrast_notify(move |_| {
+        let _ = s.send(Msg::ThemeChanged);
+    });
 }
 
 #[relm4::component]
@@ -276,12 +281,13 @@ impl SimpleComponent for App {
                     set_show_title: false,
                     add_css_class: "vibes-header",
 
-                    pack_end = &gtk::Button {
-                        set_icon_name: "emblem-system-symbolic",
-                        set_tooltip_text: Some("Settings"),
-                        add_css_class: "circular",
-                        add_css_class: "tonal",
-                        connect_clicked => Msg::OpenSettings,
+                    pack_end = &gtk::MenuButton {
+                        set_icon_name: "open-menu-symbolic",
+                        set_tooltip_text: Some("Main Menu"),
+                        set_primary: true,
+                        set_menu_model: Some(&main_menu),
+                        // Adwaita's style for controls laid over content: legible on any band.
+                        add_css_class: "osd",
                     },
                 },
 
@@ -466,7 +472,35 @@ impl SimpleComponent for App {
             blob_px: paint::MAX_BLOB_PX,
         };
 
+        let main_menu = gio::Menu::new();
+        main_menu.append(Some("_Preferences"), Some("win.preferences"));
+        main_menu.append(Some("_About Vibes"), Some("win.about"));
+
         let widgets = view_output!();
+
+        let s = sender.input_sender().clone();
+        let preferences = gio::SimpleAction::new("preferences", None);
+        preferences.connect_activate(move |_, _| {
+            let _ = s.send(Msg::OpenSettings);
+        });
+        root.add_action(&preferences);
+        let about = gio::SimpleAction::new("about", None);
+        let win = root.clone();
+        about.connect_activate(move |_, _| {
+            adw::AboutDialog::builder()
+                .application_name("Vibes")
+                .application_icon("com.niconex.Vibes")
+                .developer_name("Nicolò Santamaria")
+                .version(env!("CARGO_PKG_VERSION"))
+                .license_type(gtk::License::Gpl30)
+                .build()
+                .present(Some(&win));
+        });
+        root.add_action(&about);
+        let app = relm4::main_application();
+        app.set_accels_for_action("win.preferences", &["<Control>comma"]);
+        // One window, so closing it is quitting.
+        app.set_accels_for_action("window.close", &["<Control>w", "<Control>q"]);
 
         setup_painting(&widgets, &model.anim, &root, &sender);
         // VIBES_DEMO_SETTINGS opens the settings window on start-up, so it can be photographed
@@ -482,11 +516,7 @@ impl SimpleComponent for App {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             Msg::Freq(freq) => self.freq = freq,
-            Msg::OpenSettings => {
-                let win = self.settings.widget();
-                win.set_transient_for(Some(&self.window));
-                win.present();
-            }
+            Msg::OpenSettings => self.settings.widget().present(Some(&self.window)),
             Msg::CfgChanged(cfg) => {
                 self.cfg = cfg;
                 if let Some(engine) = &self.engine {
