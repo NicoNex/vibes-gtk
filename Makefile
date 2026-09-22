@@ -3,19 +3,19 @@ APP_ID := com.niconex.Vibes
 
 # Cross-build settings. Debian trixie is the oldest base with libadwaita 1.7, which the settings
 # window's AdwToggleGroup needs.
-CONTAINER ?= $(shell command -v docker || command -v podman)
+CONTAINER ?= $(shell command -v podman || command -v docker)
 CROSS_PLATFORM ?= linux/arm64
 CROSS_IMAGE ?= rust:1-trixie
 CROSS_OUT ?= vibes-linux-arm64
 
-.PHONY: all run test check preview icons install uninstall clean linux-arm64
+.PHONY: all run test check preview icons install uninstall clean linux-arm64 arch
 
 # The binary, dropped in the repository root — same place the Android Makefile left its apk.
 all: vibes
 
 vibes: $(shell find src -type f) Cargo.toml
 	cargo build --release
-	cp target/release/vibes vibes
+	cp -f target/release/vibes vibes
 
 run:
 	cargo run --release
@@ -39,7 +39,9 @@ icons:
 # GTK cannot be cross-linked from a foreign host without a full target sysroot: gtk4-sys asks
 # pkg-config for the target's GTK, libadwaita and ALSA, and none of that comes from rustup. So
 # the build runs inside an arm64 Linux container instead, which needs no sysroot to assemble.
-# On Apple Silicon that container runs natively, not emulated.
+# On Apple Silicon that container runs natively, not emulated. On an x86_64 Linux host it runs
+# under QEMU, which needs qemu-user-static registered with binfmt_misc (Arch:
+# qemu-user-static qemu-user-static-binfmt); without it the container dies with "exec format error".
 #
 # Override CROSS_PLATFORM (and CROSS_OUT) for another architecture:
 #   make linux-arm64 CROSS_PLATFORM=linux/amd64 CROSS_OUT=vibes-linux-amd64
@@ -57,10 +59,15 @@ linux-arm64:
 		$(CROSS_IMAGE) sh -c '\
 			apt-get update -qq && \
 			apt-get install -y -qq --no-install-recommends \
-				pkg-config libgtk-4-dev libadwaita-1-dev libasound2-dev && \
+				pkg-config libgtk-4-dev libadwaita-1-dev libasound2-dev \
+				libpipewire-0.3-dev libclang-dev && \
 			CARGO_TARGET_DIR=/target cargo build --release && \
 			cp /target/release/vibes /src/$(CROSS_OUT)'
 	@echo "-> $(CROSS_OUT)"
+
+# An Arch Linux package, dropped in the repository root: `sudo pacman -U vibes-*.pkg.tar.zst`.
+arch:
+	cd dist/arch && PKGDEST="$(CURDIR)" makepkg -f
 
 # ponytail: mkdir + cp rather than `install -D`, which BSD install does not have.
 install: vibes
@@ -73,8 +80,12 @@ install: vibes
 	cp data/icons/$(APP_ID).svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/
 	mkdir -p $(DESTDIR)$(PREFIX)/share/icons/hicolor/symbolic/apps
 	cp data/icons/$(APP_ID)-symbolic.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/symbolic/apps/
-	-gtk-update-icon-cache -qtf $(DESTDIR)$(PREFIX)/share/icons/hicolor
-	-update-desktop-database -q $(DESTDIR)$(PREFIX)/share/applications
+# Staged installs (a package) leave the caches to the package manager's own hooks: a cache
+# written into DESTDIR would collide with the one hicolor-icon-theme owns.
+ifeq ($(DESTDIR),)
+	-gtk-update-icon-cache -qtf $(PREFIX)/share/icons/hicolor
+	-update-desktop-database -q $(PREFIX)/share/applications
+endif
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/vibes
@@ -84,4 +95,5 @@ uninstall:
 
 clean:
 	cargo clean
-	rm -f vibes vibes-linux-*
+	rm -f vibes vibes-linux-* vibes-*.pkg.tar.*
+	rm -rf dist/arch/src dist/arch/pkg

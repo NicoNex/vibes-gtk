@@ -1,3 +1,6 @@
 /target
 /vibes
 /vibes-linux-*
+/vibes-*.pkg.tar.*
+/dist/arch/src
+/dist/arch/pkg

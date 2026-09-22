@@ -1,0 +1,28 @@
+# Built from this checkout, not a tarball: `make arch` from the repository root.
+pkgname=vibes
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='A chromatic instrument tuner for GNOME'
+arch=(x86_64 aarch64)
+url='https://github.com/NicoNex/vibes-gtk'
+license=(GPL-3.0-or-later)
+depends=(gtk4 libadwaita pipewire alsa-lib)
+makedepends=(cargo clang)
+# The release profile already strips; a -debug package would be empty.
+options=(!debug)
+
+_root="$startdir/../.."
+
+pkgver() {
+  sed -n 's/^version = "\(.*\)"/\1/p;T;q' "$_root/Cargo.toml"
+}
+
+build() {
+  cd "$_root"
+  cargo build --release --locked
+}
+
+package() {
+  cd "$_root"
+  make install PREFIX=/usr DESTDIR="$pkgdir"
+}
